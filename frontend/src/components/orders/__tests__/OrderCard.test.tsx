@@ -25,11 +25,17 @@ describe('OrderCard', () => {
       <OrderCard
         order={mockOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
 
     expect(screen.getByTestId('order-card')).toBeInTheDocument();
     expect(screen.getByTestId('order-product')).toHaveTextContent('Test Product');
+    
+    // Разворачиваем карточку для доступа к деталям
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
+    
     expect(screen.getByTestId('order-price')).toHaveTextContent('1 500,50 ₽');
     expect(screen.getByTestId('order-delivery')).toHaveTextContent('25.12.2024');
     expect(screen.getByTestId('order-user')).toHaveTextContent('123');
@@ -41,6 +47,7 @@ describe('OrderCard', () => {
       <OrderCard
         order={mockOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
 
@@ -58,8 +65,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={createdOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к статусу
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     const statusElement = screen.getByTestId('order-status');
     expect(statusElement).toHaveTextContent('Создан');
@@ -73,8 +85,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={deliveredOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к статусу
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     const statusElement = screen.getByTestId('order-status');
     expect(statusElement).toHaveTextContent('Доставлен');
@@ -88,8 +105,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={cancelledOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к статусу
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     const statusElement = screen.getByTestId('order-status');
     expect(statusElement).toHaveTextContent('Отменен');
@@ -103,8 +125,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={orderWithDifferentPrice}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к цене
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     expect(screen.getByTestId('order-price')).toHaveTextContent('999,99 ₽');
   });
@@ -116,8 +143,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={orderWithDifferentDate}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к дате
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     expect(screen.getByTestId('order-delivery')).toHaveTextContent('15.01.2024');
   });
@@ -127,6 +159,7 @@ describe('OrderCard', () => {
       <OrderCard
         order={mockOrder}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
 
@@ -140,8 +173,13 @@ describe('OrderCard', () => {
       <OrderCard
         order={orderWithLargePrice}
         onDelete={mockOnDelete}
+        onEdit={() => {}}
       />
     );
+
+    // Разворачиваем карточку для доступа к цене
+    const expandButton = screen.getByTestId('expand-order-btn');
+    fireEvent.click(expandButton);
 
     expect(screen.getByTestId('order-price')).toHaveTextContent('1 234 567,89 ₽');
   });

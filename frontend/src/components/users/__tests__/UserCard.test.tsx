@@ -31,6 +31,11 @@ describe('UserCard', () => {
 
     expect(screen.getByTestId('user-card')).toBeInTheDocument();
     expect(screen.getByTestId('user-username')).toHaveTextContent('testuser');
+    
+    // Разворачиваем карточку для доступа к деталям
+    const expandButton = screen.getByTestId('expand-user-btn');
+    fireEvent.click(expandButton);
+    
     expect(screen.getByTestId('user-email')).toHaveTextContent('test@example.com');
     expect(screen.getByTestId('user-created')).toHaveTextContent('01.01.2024');
     expect(screen.getByTestId('user-updated')).toHaveTextContent('02.01.2024');
@@ -83,6 +88,10 @@ describe('UserCard', () => {
       />
     );
 
+    // Разворачиваем карточку для доступа к датам
+    const expandButton = screen.getByTestId('expand-user-btn');
+    fireEvent.click(expandButton);
+
     expect(screen.getByTestId('user-created')).toHaveTextContent('25.12.2023');
     expect(screen.getByTestId('user-updated')).toHaveTextContent('15.03.2024');
   });
@@ -98,5 +107,37 @@ describe('UserCard', () => {
 
     expect(screen.getByTestId('edit-user-btn')).toHaveTextContent('Редактировать');
     expect(screen.getByTestId('delete-user-btn')).toHaveTextContent('Удалить');
+  });
+
+  it('toggles expanded state when expand button is clicked', () => {
+    render(
+      <UserCard
+        user={mockUser}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+      />
+    );
+
+    // Изначально детали скрыты
+    expect(screen.queryByTestId('user-email')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('user-created')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('user-updated')).not.toBeInTheDocument();
+
+    // Разворачиваем карточку
+    const expandButton = screen.getByTestId('expand-user-btn');
+    fireEvent.click(expandButton);
+
+    // Теперь детали видны
+    expect(screen.getByTestId('user-email')).toBeInTheDocument();
+    expect(screen.getByTestId('user-created')).toBeInTheDocument();
+    expect(screen.getByTestId('user-updated')).toBeInTheDocument();
+
+    // Сворачиваем карточку обратно
+    fireEvent.click(expandButton);
+
+    // Детали снова скрыты
+    expect(screen.queryByTestId('user-email')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('user-created')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('user-updated')).not.toBeInTheDocument();
   });
 });
