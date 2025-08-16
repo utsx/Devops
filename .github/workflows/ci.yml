@@ -53,6 +53,10 @@ jobs:
         cd backend
         ./mvnw clean test
       env:
+        # Testcontainers требует доступ к Docker
+        TESTCONTAINERS_RYUK_DISABLED: true
+        TESTCONTAINERS_CHECKS_DISABLE: true
+        # Переменные для fallback, если Testcontainers не запустится
         SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres
         SPRING_DATASOURCE_USERNAME: postgres
         SPRING_DATASOURCE_PASSWORD: postgres

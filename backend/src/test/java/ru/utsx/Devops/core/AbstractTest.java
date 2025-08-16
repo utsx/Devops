@@ -34,7 +34,7 @@ public class AbstractTest {
         registry.add("spring.liquibase.user", POSTGRES_CONTAINER::getUsername);
         registry.add("spring.liquibase.password", POSTGRES_CONTAINER::getPassword);
 
-        registry.add("spring.liquibase.change-log", () -> "classpath:/db/changelog/db.changelog-master.yaml");
+        registry.add("spring.liquibase.change-log", () -> "classpath:/db/changelog/db.changelog-master.xml");
     }
 
 }
