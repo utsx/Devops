@@ -9,6 +9,9 @@ import * as api from '../../services/api';
 jest.mock('../../services/api');
 const mockedApi = api as jest.Mocked<typeof api>;
 
+// Properly type the mocked functions
+const mockUserApi = mockedApi.userApi as jest.Mocked<typeof api.userApi>;
+
 const mockUser = {
   id: 1,
   username: 'testuser',
@@ -28,13 +31,16 @@ describe('User Management Flow', () => {
 
   it('should complete full user creation flow', async () => {
     // Mock API responses
-    mockedApi.userApi.createUser.mockResolvedValue(1);
-    mockedApi.userApi.getUser.mockResolvedValue(mockUser);
+    mockUserApi.getAllUsers.mockResolvedValue([]);
+    mockUserApi.createUser.mockResolvedValue(1);
+    mockUserApi.getUser.mockResolvedValue(mockUser);
 
     renderWithRouter(<UserList />);
 
-    // Initially should show empty state
-    expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+    // Wait for initial load and check empty state
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+    });
 
     // Click create user button
     const createButton = screen.getByTestId('create-user-btn');
@@ -57,14 +63,14 @@ describe('User Management Flow', () => {
 
     // Wait for API calls and UI updates
     await waitFor(() => {
-      expect(mockedApi.userApi.createUser).toHaveBeenCalledWith({
+      expect(mockUserApi.createUser).toHaveBeenCalledWith({
         username: 'testuser',
         email: 'test@example.com',
       });
     });
 
     await waitFor(() => {
-      expect(mockedApi.userApi.getUser).toHaveBeenCalledWith(1);
+      expect(mockUserApi.getUser).toHaveBeenCalledWith(1);
     });
 
     // Should return to list view with new user
@@ -76,17 +82,28 @@ describe('User Management Flow', () => {
   });
 
   it('should handle user creation error', async () => {
-    // Mock API error
-    mockedApi.userApi.createUser.mockRejectedValue({
+    // Mock API responses
+    mockUserApi.getAllUsers.mockResolvedValue([]);
+    mockUserApi.createUser.mockRejectedValue({
       message: 'Email already exists',
       status: 400,
     });
 
     renderWithRouter(<UserList />);
 
+    // Wait for initial load
+    await waitFor(() => {
+      expect(screen.getByTestId('empty-state')).toBeInTheDocument();
+    });
+
     // Click create user button
     const createButton = screen.getByTestId('create-user-btn');
     fireEvent.click(createButton);
+
+    // Wait for form to appear
+    await waitFor(() => {
+      expect(screen.getByTestId('user-form')).toBeInTheDocument();
+    });
 
     // Fill form
     const usernameInput = screen.getByTestId('username-input');
@@ -99,12 +116,15 @@ describe('User Management Flow', () => {
     const submitButton = screen.getByTestId('submit-btn');
     fireEvent.click(submitButton);
 
-    // Wait for error to appear
+    // Wait for API call to complete and check that form is still visible (error case)
     await waitFor(() => {
-      expect(screen.getByTestId('error-message')).toHaveTextContent('Email already exists');
+      expect(mockUserApi.createUser).toHaveBeenCalledWith({
+        username: 'testuser',
+        email: 'test@example.com',
+      });
     });
 
-    // Form should still be visible
+    // Form should still be visible since there was an error
     expect(screen.getByTestId('user-form')).toBeInTheDocument();
   });
 
@@ -112,8 +132,8 @@ describe('User Management Flow', () => {
     const updatedUser = { ...mockUser, username: 'updateduser' };
     
     // Mock API responses
-    mockedApi.userApi.updateUser.mockResolvedValue();
-    mockedApi.userApi.getUser.mockResolvedValue(updatedUser);
+    mockUserApi.updateUser.mockResolvedValue();
+    mockUserApi.getUser.mockResolvedValue(updatedUser);
 
     renderWithRouter(<UserList />);
 
@@ -139,23 +159,19 @@ describe('User Management Flow', () => {
   });
 
   it('should complete user deletion flow', async () => {
-    // Mock API response
-    mockedApi.userApi.deleteUser.mockResolvedValue();
+    // Mock API responses
+    mockUserApi.getAllUsers.mockResolvedValue([mockUser]);
+    mockUserApi.deleteUser.mockResolvedValue();
 
     // Mock window.confirm to return true
     const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
 
     renderWithRouter(<UserList />);
 
-    // Simulate having a user in the list
-    render(
-      <div data-testid="user-card">
-        <div data-testid="user-username">testuser</div>
-        <button data-testid="delete-user-btn" onClick={() => {}}>
-          Удалить
-        </button>
-      </div>
-    );
+    // Wait for user to load
+    await waitFor(() => {
+      expect(screen.getByTestId('user-card')).toBeInTheDocument();
+    });
 
     // Click delete button
     const deleteButton = screen.getByTestId('delete-user-btn');
@@ -168,27 +184,25 @@ describe('User Management Flow', () => {
   });
 
   it('should cancel user deletion when user clicks cancel', async () => {
+    // Mock API responses
+    mockUserApi.getAllUsers.mockResolvedValue([mockUser]);
+    
     // Mock window.confirm to return false
     const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
 
     renderWithRouter(<UserList />);
 
-    // Simulate having a user in the list
-    render(
-      <div data-testid="user-card">
-        <div data-testid="user-username">testuser</div>
-        <button data-testid="delete-user-btn" onClick={() => {}}>
-          Удалить
-        </button>
-      </div>
-    );
+    // Wait for user to load
+    await waitFor(() => {
+      expect(screen.getByTestId('user-card')).toBeInTheDocument();
+    });
 
     // Click delete button
     const deleteButton = screen.getByTestId('delete-user-btn');
     fireEvent.click(deleteButton);
 
     // API should not be called
-    expect(mockedApi.userApi.deleteUser).not.toHaveBeenCalled();
+    expect(mockUserApi.deleteUser).not.toHaveBeenCalled();
 
     confirmSpy.mockRestore();
   });

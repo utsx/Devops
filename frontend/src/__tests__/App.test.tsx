@@ -78,7 +78,7 @@ describe('App', () => {
     render(<App />);
 
     expect(screen.getByText('Возможности системы')).toBeInTheDocument();
-    expect(screen.getByText('Управление пользователями')).toBeInTheDocument();
+    expect(screen.getAllByText('Управление пользователями')).toHaveLength(2); // Один в кнопке, один в заголовке
     expect(screen.getByText('Создавайте, редактируйте и удаляйте пользователей системы')).toBeInTheDocument();
     expect(screen.getByText('Отслеживание заказов')).toBeInTheDocument();
     expect(screen.getByText('Создавайте заказы и отслеживайте их статус доставки')).toBeInTheDocument();
