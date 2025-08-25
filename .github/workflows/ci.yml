@@ -222,7 +222,7 @@ jobs:
         EOF
         
         # Запускаем контейнеры для проверки
-        docker-compose -f docker-compose.test.yml up -d
+        docker compose -f docker-compose.test.yml up -d
         
         # Ждем запуска сервисов
         sleep 30
@@ -232,7 +232,7 @@ jobs:
         curl -f http://localhost:3000/ || exit 1
         
         # Останавливаем контейнеры
-        docker-compose -f docker-compose.test.yml down
+        docker compose -f docker-compose.test.yml down
 
   # Анализ качества кода
   code-quality:
