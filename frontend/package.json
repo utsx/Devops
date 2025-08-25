@@ -46,5 +46,10 @@
   "devDependencies": {
     "@types/testing-library__jest-dom": "^5.14.5",
     "msw": "^1.2.1"
+  },
+  "jest": {
+    "transformIgnorePatterns": [
+      "node_modules/(?!(axios)/)"
+    ]
   }
 }

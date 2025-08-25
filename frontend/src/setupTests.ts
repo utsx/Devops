@@ -18,7 +18,11 @@ beforeAll(() => {
   console.error = (...args: any[]) => {
     if (
       typeof args[0] === 'string' &&
-      args[0].includes('Warning: ReactDOM.render is no longer supported')
+      (args[0].includes('Warning: ReactDOM.render is no longer supported') ||
+       args[0].includes('Warning: An invalid form control') ||
+       args[0].includes('Warning: You seem to have overlapping act() calls') ||
+       args[0].includes('Warning: `ReactDOMTestUtils.act` is deprecated') ||
+       args[0].includes('act(...)'))
     ) {
       return;
     }

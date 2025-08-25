@@ -42,17 +42,22 @@ describe('OrderForm', () => {
       render(<OrderForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
       expect(screen.getByTestId('form-title')).toHaveTextContent('Создать заказ');
-      expect(screen.getByTestId('userId-select')).toBeInTheDocument();
+      
+      // Ждем загрузки пользователей
+      await waitFor(() => {
+        expect(mockUserApi.getAllUsers).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('userId-select')).toBeInTheDocument();
+      });
+
       expect(screen.getByTestId('product-name-input')).toBeInTheDocument();
       expect(screen.getByTestId('delivery-date-input')).toBeInTheDocument();
       expect(screen.getByTestId('status-select')).toBeInTheDocument();
       expect(screen.getByTestId('total-input')).toBeInTheDocument();
       expect(screen.getByTestId('submit-btn')).toHaveTextContent('Создать заказ');
       expect(screen.getByTestId('cancel-btn')).toBeInTheDocument();
-
-      await waitFor(() => {
-        expect(mockUserApi.getAllUsers).toHaveBeenCalled();
-      });
     });
 
     it('validates delivery date is not in the past for new orders', async () => {
@@ -79,6 +84,11 @@ describe('OrderForm', () => {
 
       await waitFor(() => {
         expect(mockUserApi.getAllUsers).toHaveBeenCalled();
+      });
+
+      // Ждем появления select элемента
+      await waitFor(() => {
+        expect(screen.getByTestId('userId-select')).toBeInTheDocument();
       });
 
       const tomorrow = new Date();
@@ -117,7 +127,7 @@ describe('OrderForm', () => {
       expect(screen.getByText('Test Product')).toBeInTheDocument();
       expect(screen.getByText('Создан')).toBeInTheDocument();
       expect(screen.getByTestId('delivery-date-input')).toHaveValue('2024-12-15');
-      expect(screen.getByTestId('total-input')).toHaveValue('100.5');
+      expect(screen.getByTestId('total-input')).toHaveValue(100.5);
       expect(screen.getByTestId('submit-btn')).toHaveTextContent('Сохранить изменения');
     });
 

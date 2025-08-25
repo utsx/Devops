@@ -15,7 +15,7 @@ const OrderForm: React.FC<OrderFormProps> = ({ onSubmit, onCancel, isLoading = f
     product_name: editOrder?.productName || '',
     delivery_date: editOrder?.deliveryDate || '',
     status: editOrder?.status || OrderStatus.CREATED,
-    total: editOrder?.total.toString() || '',
+    total: editOrder?.total?.toString() || '',
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [users, setUsers] = useState<User[]>([]);
