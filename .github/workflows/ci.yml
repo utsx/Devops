@@ -134,12 +134,15 @@ jobs:
         name: frontend-coverage
         path: frontend/coverage/
 
-  # Сборка Docker образов
+  # Сборка и публикация Docker образов
   docker-build:
-    name: Build Docker Images
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: [backend-test, frontend-test]
     if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
 
     steps:
     - name: Checkout code
@@ -147,6 +150,35 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata for backend
+      id: backend-meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/backend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Extract metadata for frontend
+      id: frontend-meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/frontend
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Download backend artifacts
       uses: actions/download-artifact@v4
@@ -160,30 +192,41 @@ jobs:
         name: frontend-build
         path: frontend/build/
 
-    - name: Build backend Docker image
+    - name: Build and push backend Docker image
       uses: docker/build-push-action@v5
       with:
         context: ./backend
         file: ./backend/Dockerfile
-        push: false
-        tags: devops-backend:${{ github.sha }}
+        push: true
+        tags: ${{ steps.backend-meta.outputs.tags }}
+        labels: ${{ steps.backend-meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
 
-    - name: Build frontend Docker image
+    - name: Build and push frontend Docker image
       uses: docker/build-push-action@v5
       with:
         context: ./frontend
         file: ./frontend/Dockerfile
-        push: false
-        tags: devops-frontend:${{ github.sha }}
+        push: true
+        tags: ${{ steps.frontend-meta.outputs.tags }}
+        labels: ${{ steps.frontend-meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
 
-    - name: Test Docker Compose
+    - name: Test Docker images
       run: |
+        # Получаем теги образов
+        BACKEND_TAG=$(echo "${{ steps.backend-meta.outputs.tags }}" | head -n1)
+        FRONTEND_TAG=$(echo "${{ steps.frontend-meta.outputs.tags }}" | head -n1)
+        
+        echo "Testing backend image: $BACKEND_TAG"
+        echo "Testing frontend image: $FRONTEND_TAG"
+        
         # Создаем временный docker-compose для тестирования
-        cat > docker-compose.test.yml << EOF
+        cat > docker-compose.ci-test.yml << EOF
         services:
           postgres:
             image: postgres:16
@@ -200,7 +243,7 @@ jobs:
               retries: 5
         
           backend:
-            image: devops-backend:${{ github.sha }}
+            image: $BACKEND_TAG
             environment:
               - SPRING_PROFILES_ACTIVE=docker
               - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/postgres
@@ -213,32 +256,28 @@ jobs:
                 condition: service_healthy
         
           frontend:
-            image: devops-frontend:${{ github.sha }}
+            image: $FRONTEND_TAG
             ports:
               - "3000:80"
             depends_on:
               - backend
         EOF
         
-        # Проверяем, что образы существуют локально
-        docker images | grep devops-backend || exit 1
-        docker images | grep devops-frontend || exit 1
-        
         # Запускаем контейнеры для проверки
-        docker compose -f docker-compose.test.yml up -d
+        docker compose -f docker-compose.ci-test.yml up -d
         
         # Ждем запуска сервисов
         echo "Ожидание запуска сервисов..."
         sleep 60
         
         # Проверяем статус контейнеров
-        docker compose -f docker-compose.test.yml ps
+        docker compose -f docker-compose.ci-test.yml ps
         
         # Проверяем логи в случае проблем
         echo "=== Backend logs ==="
-        docker compose -f docker-compose.test.yml logs backend
+        docker compose -f docker-compose.ci-test.yml logs backend
         echo "=== Frontend logs ==="
-        docker compose -f docker-compose.test.yml logs frontend
+        docker compose -f docker-compose.ci-test.yml logs frontend
         
         # Проверяем доступность сервисов
         echo "Проверка доступности backend..."
@@ -262,7 +301,45 @@ jobs:
         done
         
         # Останавливаем контейнеры
-        docker compose -f docker-compose.test.yml down
+        docker compose -f docker-compose.ci-test.yml down
+
+  # Security scanning образов
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    steps:
+    - name: Run Trivy vulnerability scanner for backend
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'ghcr.io/${{ github.repository }}/backend:${{ github.ref_name }}-${{ github.sha }}'
+        format: 'sarif'
+        output: 'backend-trivy-results.sarif'
+
+    - name: Upload Trivy scan results for backend
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'backend-trivy-results.sarif'
+        category: 'backend-image'
+
+    - name: Run Trivy vulnerability scanner for frontend
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'ghcr.io/${{ github.repository }}/frontend:${{ github.ref_name }}-${{ github.sha }}'
+        format: 'sarif'
+        output: 'frontend-trivy-results.sarif'
+
+    - name: Upload Trivy scan results for frontend
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'frontend-trivy-results.sarif'
+        category: 'frontend-image'
 
   # Анализ качества кода
   code-quality:
