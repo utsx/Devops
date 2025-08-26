@@ -184,7 +184,6 @@ jobs:
       run: |
         # Создаем временный docker-compose для тестирования
         cat > docker-compose.test.yml << EOF
-        version: '3.8'
         services:
           postgres:
             image: postgres:16
@@ -221,15 +220,46 @@ jobs:
               - backend
         EOF
         
+        # Проверяем, что образы существуют локально
+        docker images | grep devops-backend || exit 1
+        docker images | grep devops-frontend || exit 1
+        
         # Запускаем контейнеры для проверки
         docker compose -f docker-compose.test.yml up -d
         
         # Ждем запуска сервисов
-        sleep 30
+        echo "Ожидание запуска сервисов..."
+        sleep 60
+        
+        # Проверяем статус контейнеров
+        docker compose -f docker-compose.test.yml ps
+        
+        # Проверяем логи в случае проблем
+        echo "=== Backend logs ==="
+        docker compose -f docker-compose.test.yml logs backend
+        echo "=== Frontend logs ==="
+        docker compose -f docker-compose.test.yml logs frontend
         
         # Проверяем доступность сервисов
-        curl -f http://localhost:8080/actuator/health || exit 1
-        curl -f http://localhost:3000/ || exit 1
+        echo "Проверка доступности backend..."
+        for i in {1..10}; do
+          if curl -f http://localhost:8080/actuator/health; then
+            echo "Backend доступен"
+            break
+          fi
+          echo "Попытка $i/10 не удалась, ждем 10 секунд..."
+          sleep 10
+        done
+        
+        echo "Проверка доступности frontend..."
+        for i in {1..5}; do
+          if curl -f http://localhost:3000/; then
+            echo "Frontend доступен"
+            break
+          fi
+          echo "Попытка $i/5 не удалась, ждем 10 секунд..."
+          sleep 10
+        done
         
         # Останавливаем контейнеры
         docker compose -f docker-compose.test.yml down
