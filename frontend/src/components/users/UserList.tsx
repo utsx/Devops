@@ -42,7 +42,6 @@ const UserList: React.FC = () => {
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
-      // Don't close form on error - keep it open so user can fix the issue
     } finally {
       setFormLoading(false);
     }
@@ -56,7 +55,7 @@ const UserList: React.FC = () => {
     try {
       await userApi.updateUser(editingUser.id, userData);
       const updatedUser = await userApi.getUser(editingUser.id);
-      setUsers(prev => prev.map(user =>
+      setUsers(prev => prev.map(user => 
         user.id === editingUser.id ? updatedUser : user
       ));
       setShowForm(false);
@@ -64,7 +63,6 @@ const UserList: React.FC = () => {
     } catch (err) {
       const apiError = err as ApiError;
       setError(apiError.message);
-      // Don't close form on error - keep it open so user can fix the issue
     } finally {
       setFormLoading(false);
     }
