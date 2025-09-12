@@ -11,207 +11,10 @@ env:
   NODE_VERSION: '18'
 
 jobs:
-  # Тестирование и сборка Backend
-  backend-test:
-    name: Backend Tests
-    runs-on: ubuntu-latest
-    
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-
-    - name: Cache Maven dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
-
-    - name: Run backend tests
-      run: |
-        cd backend
-        ./mvnw clean test
-      env:
-        # Testcontainers требует доступ к Docker
-        TESTCONTAINERS_RYUK_DISABLED: true
-        TESTCONTAINERS_CHECKS_DISABLE: true
-        # Переменные для fallback, если Testcontainers не запустится
-        SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres
-        SPRING_DATASOURCE_USERNAME: postgres
-        SPRING_DATASOURCE_PASSWORD: postgres
-
-    - name: Build backend
-      run: |
-        cd backend
-        ./mvnw clean package -DskipTests
-
-    - name: Upload backend artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-jar
-        path: backend/target/*.jar
-
-  # Тестирование и сборка Frontend
-  frontend-test:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Node.js ${{ env.NODE_VERSION }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-
-    - name: Cache Node.js dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          frontend/node_modules
-          ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json', 'frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
-          ${{ runner.os }}-node-
-
-    - name: Install frontend dependencies
-      run: |
-        cd frontend
-        if [ -f package-lock.json ]; then
-          npm ci
-        else
-          npm install
-          # Создаем package-lock.json для последующих запусков
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
-          if [ -n "$(git status --porcelain package-lock.json 2>/dev/null)" ]; then
-            echo "package-lock.json был создан, но не коммитим его в CI"
-          fi
-        fi
-
-    - name: Run frontend linting
-      run: |
-        cd frontend
-        npm run build
-
-    - name: Run frontend tests
-      run: |
-        cd frontend
-        npm run test:coverage
-
-    - name: Upload frontend build
-      uses: actions/upload-artifact@v4
-      with:
-        name: frontend-build
-        path: frontend/build/
-
-    - name: Upload coverage reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: frontend-coverage
-        path: frontend/coverage/
-
-  # Анализ качества кода
-  code-quality:
-    name: Code Quality Analysis
-    runs-on: ubuntu-latest
-    needs: [backend-test, frontend-test, build]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Set up JDK ${{ env.JAVA_VERSION }}
-      uses: actions/setup-java@v4
-      with:
-        java-version: ${{ env.JAVA_VERSION }}
-        distribution: 'temurin'
-
-    - name: Cache Maven dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.m2
-        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-        restore-keys: ${{ runner.os }}-m2
-
-    - name: Set up Node.js ${{ env.NODE_VERSION }}
-      uses: actions/setup-node@v4
-      with:
-        node-version: ${{ env.NODE_VERSION }}
-
-    - name: Cache Node.js dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          frontend/node_modules
-          ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json', 'frontend/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
-          ${{ runner.os }}-node-
-
-    - name: Install frontend dependencies
-      run: |
-        cd frontend
-        if [ -f package-lock.json ]; then
-          npm ci
-        else
-          npm install
-          # Создаем package-lock.json для последующих запусков
-          git config --global user.email "action@github.com"
-          git config --global user.name "GitHub Action"
-          if [ -n "$(git status --porcelain package-lock.json 2>/dev/null)" ]; then
-            echo "package-lock.json был создан, но не коммитим его в CI"
-          fi
-        fi
-
-    - name: Download coverage reports
-      uses: actions/download-artifact@v4
-      with:
-        name: frontend-coverage
-        path: frontend/coverage/
-
-    - name: Display build summary
-      run: |
-        echo "## 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
-        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Backend Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| Frontend Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
-        echo "Frontend coverage reports are available in artifacts." >> $GITHUB_STEP_SUMMARY
-
-  # Сборка приложений
+  # Сборка приложений - выполняется первым
   build:
     name: Build Applications
     runs-on: ubuntu-latest
-    needs: [backend-test, frontend-test]
 
     steps:
     - name: Checkout code
@@ -356,3 +159,191 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🚀 Ready for Deployment" >> $GITHUB_STEP_SUMMARY
         echo "All application artifacts are built and ready for deployment to production environment." >> $GITHUB_STEP_SUMMARY
+
+  # Тестирование Backend
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-application
+        path: backend/target/
+
+    - name: Run backend tests
+      run: |
+        cd backend
+        ./mvnw clean test
+      env:
+        # Testcontainers требует доступ к Docker
+        TESTCONTAINERS_RYUK_DISABLED: true
+        TESTCONTAINERS_CHECKS_DISABLE: true
+        # Переменные для fallback, если Testcontainers не запустится
+        SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres
+        SPRING_DATASOURCE_USERNAME: postgres
+        SPRING_DATASOURCE_PASSWORD: postgres
+
+  # Тестирование Frontend
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: [build]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          frontend/node_modules
+          ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json', 'frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
+          ${{ runner.os }}-node-
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+          # Создаем package-lock.json для последующих запусков
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          if [ -n "$(git status --porcelain package-lock.json 2>/dev/null)" ]; then
+            echo "package-lock.json был создан, но не коммитим его в CI"
+          fi
+        fi
+
+    - name: Download frontend build
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-application
+        path: frontend/build/
+
+    - name: Run frontend tests
+      run: |
+        cd frontend
+        npm run test:coverage
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-coverage
+        path: frontend/coverage/
+
+  # Анализ качества кода
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Set up Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          frontend/node_modules
+          ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json', 'frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
+          ${{ runner.os }}-node-
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+          # Создаем package-lock.json для последующих запусков
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+          if [ -n "$(git status --porcelain package-lock.json 2>/dev/null)" ]; then
+            echo "package-lock.json был создан, но не коммитим его в CI"
+          fi
+        fi
+
+    - name: Download coverage reports
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-coverage
+        path: frontend/coverage/
+
+    - name: Display build summary
+      run: |
+        echo "## 🚀 Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Backend Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend Tests | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
+        echo "Frontend coverage reports are available in artifacts." >> $GITHUB_STEP_SUMMARY
