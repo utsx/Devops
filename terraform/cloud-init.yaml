@@ -1,0 +1,66 @@
+#cloud-config
+users:
+  - name: ${ssh_user}
+    groups: sudo
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - curl
+  - wget
+  - git
+  - htop
+  - unzip
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+
+# Установка Docker
+runcmd:
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - systemctl start docker
+  - systemctl enable docker
+  - usermod -aG docker ${ssh_user}
+  - curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+  - ln -s /usr/local/bin/docker-compose /usr/bin/docker-compose
+
+# Создание директории для проекта
+  - mkdir -p /home/${ssh_user}/devops-project
+  - chown -R ${ssh_user}:${ssh_user} /home/${ssh_user}/devops-project
+
+write_files:
+  - path: /home/${ssh_user}/devops-project/README.md
+    content: |
+      # DevOps Project VM
+      
+      Эта виртуальная машина настроена для развертывания DevOps проекта.
+      
+      ## Установленное ПО:
+      - Docker
+      - Docker Compose
+      - Git
+      - Curl, wget, htop
+      
+      ## Следующие шаги:
+      1. Склонируйте ваш проект: `git clone <repository-url>`
+      2. Перейдите в директорию проекта
+      3. Запустите приложение: `docker-compose up -d`
+      
+      ## Полезные команды:
+      - Проверить статус Docker: `sudo systemctl status docker`
+      - Просмотреть запущенные контейнеры: `docker ps`
+      - Просмотреть логи: `docker-compose logs`
+    owner: ${ssh_user}:${ssh_user}
+    permissions: '0644'
+
+final_message: "VM setup completed successfully! Docker and Docker Compose are ready to use."
