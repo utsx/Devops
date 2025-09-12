@@ -1,0 +1,62 @@
+# Скопируйте этот файл в terraform.tfvars и заполните своими значениями
+
+# Аутентификация в Yandex Cloud
+yandex_token     = "your-oauth-token-here"
+yandex_cloud_id  = "your-cloud-id-here"
+yandex_folder_id = "your-folder-id-here"
+yandex_zone      = "ru-central1-a"
+
+# Настройки виртуальной машины
+vm_name        = "devops-vm"
+vm_platform_id = "standard-v3"
+vm_cores       = 2
+vm_memory      = 4
+vm_core_fraction = 100
+vm_disk_size   = 20
+vm_disk_type   = "network-hdd"
+vm_image_family = "ubuntu-2204-lts"
+vm_preemptible = false
+
+# Настройки сети
+subnet_cidr = "10.2.0.0/16"
+
+# SSH настройки (выберите один из вариантов)
+
+# Вариант 1: Указать содержимое ключа напрямую (рекомендуется)
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-public-key-content-here"
+
+# Вариант 2: Указать путь к файлу ключа (альтернатива)
+# ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+ssh_user = "ubuntu"
+
+# Метки для ресурсов
+labels = {
+  project     = "devops"
+  environment = "development"
+  managed_by  = "terraform"
+  owner       = "your-name"
+}
+
+# Примеры других конфигураций:
+
+# Для production окружения:
+# vm_cores       = 4
+# vm_memory      = 8
+# vm_disk_size   = 50
+# vm_disk_type   = "network-ssd"
+# vm_preemptible = false
+
+# Для тестового окружения (экономия средств):
+# vm_cores       = 2
+# vm_memory      = 2
+# vm_disk_size   = 10
+# vm_disk_type   = "network-hdd"
+# vm_preemptible = true
+
+# Для высокопроизводительных задач:
+# vm_platform_id = "standard-v3"
+# vm_cores       = 8
+# vm_memory      = 16
+# vm_core_fraction = 100
+# vm_disk_type   = "network-ssd"

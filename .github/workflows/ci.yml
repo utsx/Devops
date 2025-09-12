@@ -11,10 +11,160 @@ env:
   NODE_VERSION: '18'
 
 jobs:
-  # Тестирование и сборка Backend
+  # Сборка приложений - выполняется первым
+  build:
+    name: Build Applications
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # Backend сборка
+    - name: Set up JDK ${{ env.JAVA_VERSION }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build backend application
+      run: |
+        cd backend
+        ./mvnw clean package -DskipTests
+        echo "Backend JAR built successfully"
+        ls -la target/*.jar
+
+    # Frontend сборка
+    - name: Set up Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Cache Node.js dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          frontend/node_modules
+          ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('frontend/package.json', 'frontend/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-${{ hashFiles('frontend/package.json') }}
+          ${{ runner.os }}-node-
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+
+    - name: Build frontend application
+      run: |
+        cd frontend
+        npm run build
+        echo "Frontend build completed successfully"
+        ls -la build/
+
+    # Загрузка артефактов
+    - name: Upload backend JAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-application
+        path: backend/target/*.jar
+        retention-days: 7
+
+    - name: Upload frontend build
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-application
+        path: frontend/build/
+        retention-days: 7
+
+    # Создание релизного архива
+    - name: Create release archive
+      run: |
+        mkdir -p release
+        cp backend/target/*.jar release/
+        cp -r frontend/build release/frontend-build
+        
+        # Создаем архив с версией
+        VERSION=$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}
+        tar -czf release-${VERSION}.tar.gz -C release .
+        
+        echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
+        echo "Release archive created: release-${VERSION}.tar.gz"
+
+    - name: Upload release archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-${{ env.RELEASE_VERSION }}
+        path: release-${{ env.RELEASE_VERSION }}.tar.gz
+        retention-days: 30
+
+    # Проверка артефактов
+    - name: Verify build artifacts
+      run: |
+        echo "=== Backend JAR Info ==="
+        BACKEND_JAR=$(find backend/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar")
+        if [ -f "$BACKEND_JAR" ]; then
+          echo "✅ Backend JAR found: $(basename $BACKEND_JAR)"
+          echo "📦 Size: $(du -h $BACKEND_JAR | cut -f1)"
+          echo "🔍 JAR contents:"
+          jar -tf "$BACKEND_JAR" | head -10
+          echo "..."
+        else
+          echo "❌ Backend JAR not found!"
+          exit 1
+        fi
+        
+        echo ""
+        echo "=== Frontend Build Info ==="
+        if [ -d "frontend/build" ]; then
+          echo "✅ Frontend build directory found"
+          echo "📦 Size: $(du -sh frontend/build | cut -f1)"
+          echo "📁 Contents:"
+          find frontend/build -type f -name "*.js" -o -name "*.css" -o -name "*.html" | head -10
+        else
+          echo "❌ Frontend build directory not found!"
+          exit 1
+        fi
+
+    - name: Update build summary
+      run: |
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🏗️ Application Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Artifact |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|----------|" >> $GITHUB_STEP_SUMMARY
+        
+        BACKEND_JAR=$(find backend/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar")
+        BACKEND_SIZE=$(du -h "$BACKEND_JAR" | cut -f1)
+        FRONTEND_SIZE=$(du -sh frontend/build | cut -f1)
+        
+        echo "| Backend | ✅ Built | JAR ($BACKEND_SIZE) |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend | ✅ Built | Static files ($FRONTEND_SIZE) |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- **Backend JAR**: \`$(basename $BACKEND_JAR)\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend Build**: Static files ready for deployment" >> $GITHUB_STEP_SUMMARY
+        echo "- **Release Archive**: \`release-${{ env.RELEASE_VERSION }}.tar.gz\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Ready for Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "All application artifacts are built and ready for deployment to production environment." >> $GITHUB_STEP_SUMMARY
+
+  # Тестирование Backend
   backend-test:
     name: Backend Tests
     runs-on: ubuntu-latest
+    needs: [build]
     
     services:
       postgres:
@@ -48,6 +198,12 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-application
+        path: backend/target/
+
     - name: Run backend tests
       run: |
         cd backend
@@ -61,21 +217,11 @@ jobs:
         SPRING_DATASOURCE_USERNAME: postgres
         SPRING_DATASOURCE_PASSWORD: postgres
 
-    - name: Build backend
-      run: |
-        cd backend
-        ./mvnw clean package -DskipTests
-
-    - name: Upload backend artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-jar
-        path: backend/target/*.jar
-
-  # Тестирование и сборка Frontend
+  # Тестирование Frontend
   frontend-test:
     name: Frontend Tests
     runs-on: ubuntu-latest
+    needs: [build]
 
     steps:
     - name: Checkout code
@@ -112,21 +258,16 @@ jobs:
           fi
         fi
 
-    - name: Run frontend linting
-      run: |
-        cd frontend
-        npm run build
+    - name: Download frontend build
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-application
+        path: frontend/build/
 
     - name: Run frontend tests
       run: |
         cd frontend
         npm run test:coverage
-
-    - name: Upload frontend build
-      uses: actions/upload-artifact@v4
-      with:
-        name: frontend-build
-        path: frontend/build/
 
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
