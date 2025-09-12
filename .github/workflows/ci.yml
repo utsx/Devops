@@ -138,7 +138,7 @@ jobs:
   code-quality:
     name: Code Quality Analysis
     runs-on: ubuntu-latest
-    needs: [backend-test, frontend-test]
+    needs: [backend-test, frontend-test, build]
 
     steps:
     - name: Checkout code
@@ -206,3 +206,128 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
         echo "Frontend coverage reports are available in artifacts." >> $GITHUB_STEP_SUMMARY
+
+  # Сборка Docker образов
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Cache Docker layers
+      uses: actions/cache@v4
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+
+    - name: Build backend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: false
+        tags: |
+          devops-backend:latest
+          devops-backend:${{ github.sha }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+        outputs: type=docker,dest=/tmp/backend-image.tar
+
+    - name: Build frontend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: false
+        tags: |
+          devops-frontend:latest
+          devops-frontend:${{ github.sha }}
+        cache-from: type=local,src=/tmp/.buildx-cache
+        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+        outputs: type=docker,dest=/tmp/frontend-image.tar
+
+    - name: Move cache
+      run: |
+        rm -rf /tmp/.buildx-cache
+        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+    - name: Upload backend Docker image
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-docker-image
+        path: /tmp/backend-image.tar
+        retention-days: 1
+
+    - name: Upload frontend Docker image
+      uses: actions/upload-artifact@v4
+      with:
+        name: frontend-docker-image
+        path: /tmp/frontend-image.tar
+        retention-days: 1
+
+    - name: Test Docker images
+      run: |
+        # Загружаем образы
+        docker load -i /tmp/backend-image.tar
+        docker load -i /tmp/frontend-image.tar
+        
+        # Проверяем, что образы созданы
+        docker images | grep devops-backend
+        docker images | grep devops-frontend
+        
+        # Быстрый тест запуска контейнеров
+        echo "Testing backend container..."
+        docker run --rm -d --name test-backend -p 8080:8080 devops-backend:latest
+        sleep 30
+        
+        # Проверяем health check backend
+        if docker exec test-backend curl -f http://localhost:8080/actuator/health; then
+          echo "✅ Backend container is healthy"
+        else
+          echo "❌ Backend container health check failed"
+          docker logs test-backend
+          exit 1
+        fi
+        
+        docker stop test-backend
+        
+        echo "Testing frontend container..."
+        docker run --rm -d --name test-frontend -p 80:80 devops-frontend:latest
+        sleep 10
+        
+        # Проверяем health check frontend
+        if docker exec test-frontend curl -f http://localhost:80; then
+          echo "✅ Frontend container is healthy"
+        else
+          echo "❌ Frontend container health check failed"
+          docker logs test-frontend
+          exit 1
+        fi
+        
+        docker stop test-frontend
+
+    - name: Update build summary
+      run: |
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🐳 Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Image Size |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|------------|" >> $GITHUB_STEP_SUMMARY
+        
+        BACKEND_SIZE=$(docker images devops-backend:latest --format "table {{.Size}}" | tail -n 1)
+        FRONTEND_SIZE=$(docker images devops-frontend:latest --format "table {{.Size}}" | tail -n 1)
+        
+        echo "| Backend | ✅ Built | $BACKEND_SIZE |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend | ✅ Built | $FRONTEND_SIZE |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "- Backend Docker image: \`devops-backend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- Frontend Docker image: \`devops-frontend:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
