@@ -9,6 +9,8 @@ on:
 env:
   JAVA_VERSION: '21'
   NODE_VERSION: '18'
+  DOCKER_REGISTRY: 'docker.io'
+  DOCKER_BUILDKIT: 1
 
 jobs:
   # Сборка приложений - выполняется первым
@@ -347,3 +349,213 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
         echo "Frontend coverage reports are available in artifacts." >> $GITHUB_STEP_SUMMARY
+
+  # Сборка и публикация Docker образов
+  docker-build-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [build, backend-test, frontend-test, code-quality]
+    # Выполняется только для main ветки и тегов
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Download backend artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: backend-application
+        path: backend/target/
+
+    - name: Download frontend build
+      uses: actions/download-artifact@v4
+      with:
+        name: frontend-application
+        path: frontend/build/
+
+    - name: Generate image tags
+      id: meta
+      run: |
+        # Определяем версию на основе типа события
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        elif [[ $GITHUB_REF == refs/heads/main ]]; then
+          VERSION="latest"
+        else
+          VERSION="dev-${GITHUB_SHA:0:7}"
+        fi
+        
+        # Генерируем теги для образов
+        BACKEND_IMAGE="${DOCKER_REGISTRY}/${GITHUB_REPOSITORY_OWNER}/devops-backend"
+        FRONTEND_IMAGE="${DOCKER_REGISTRY}/${GITHUB_REPOSITORY_OWNER}/devops-frontend"
+        
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+        echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_OUTPUT
+        echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_OUTPUT
+        echo "BACKEND_TAGS=${BACKEND_IMAGE}:${VERSION},${BACKEND_IMAGE}:latest" >> $GITHUB_OUTPUT
+        echo "FRONTEND_TAGS=${FRONTEND_IMAGE}:${VERSION},${FRONTEND_IMAGE}:latest" >> $GITHUB_OUTPUT
+        
+        echo "🏷️ Generated tags:"
+        echo "Backend: ${BACKEND_IMAGE}:${VERSION}, ${BACKEND_IMAGE}:latest"
+        echo "Frontend: ${FRONTEND_IMAGE}:${VERSION}, ${FRONTEND_IMAGE}:latest"
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Backend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.BACKEND_TAGS }}
+        labels: |
+          org.opencontainers.image.title=DevOps Backend
+          org.opencontainers.image.description=Spring Boot backend application
+          org.opencontainers.image.version=${{ steps.meta.outputs.VERSION }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.FRONTEND_TAGS }}
+        labels: |
+          org.opencontainers.image.title=DevOps Frontend
+          org.opencontainers.image.description=React frontend application with nginx
+          org.opencontainers.image.version=${{ steps.meta.outputs.VERSION }}
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    - name: Verify pushed images
+      run: |
+        echo "🔍 Verifying pushed images..."
+        
+        # Проверяем backend образ
+        docker pull ${{ steps.meta.outputs.BACKEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}
+        BACKEND_SIZE=$(docker images --format "table {{.Size}}" ${{ steps.meta.outputs.BACKEND_IMAGE }}:${{ steps.meta.outputs.VERSION }} | tail -n 1)
+        
+        # Проверяем frontend образ
+        docker pull ${{ steps.meta.outputs.FRONTEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}
+        FRONTEND_SIZE=$(docker images --format "table {{.Size}}" ${{ steps.meta.outputs.FRONTEND_IMAGE }}:${{ steps.meta.outputs.VERSION }} | tail -n 1)
+        
+        echo "✅ Backend image verified: ${{ steps.meta.outputs.BACKEND_IMAGE }}:${{ steps.meta.outputs.VERSION }} (${BACKEND_SIZE})"
+        echo "✅ Frontend image verified: ${{ steps.meta.outputs.FRONTEND_IMAGE }}:${{ steps.meta.outputs.VERSION }} (${FRONTEND_SIZE})"
+        
+        # Сохраняем информацию для summary
+        echo "BACKEND_SIZE=${BACKEND_SIZE}" >> $GITHUB_ENV
+        echo "FRONTEND_SIZE=${FRONTEND_SIZE}" >> $GITHUB_ENV
+
+    - name: Update Docker images summary
+      run: |
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🐳 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Image | Version | Size |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-------|---------|------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Backend | \`${{ steps.meta.outputs.BACKEND_IMAGE }}\` | \`${{ steps.meta.outputs.VERSION }}\` | ${{ env.BACKEND_SIZE }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend | \`${{ steps.meta.outputs.FRONTEND_IMAGE }}\` | \`${{ steps.meta.outputs.VERSION }}\` | ${{ env.FRONTEND_SIZE }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🚀 Deployment Commands" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "# Pull images" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ steps.meta.outputs.BACKEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker pull ${{ steps.meta.outputs.FRONTEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# Deploy with docker-compose" >> $GITHUB_STEP_SUMMARY
+        echo "export BACKEND_VERSION=${{ steps.meta.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "export FRONTEND_VERSION=${{ steps.meta.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+        echo "export DOCKER_USERNAME=${{ github.repository_owner }}" >> $GITHUB_STEP_SUMMARY
+        echo "docker-compose -f docker-compose.prod.yml up -d" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📋 Image Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Registry**: ${{ env.DOCKER_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Namespace**: ${{ github.repository_owner }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Platforms**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+
+    - name: Create deployment artifact
+      run: |
+        mkdir -p deployment
+        
+        # Создаем файл с переменными окружения для деплоя
+        cat > deployment/.env.deploy << EOF
+        # Generated deployment configuration
+        # Build: ${{ github.sha }}
+        # Version: ${{ steps.meta.outputs.VERSION }}
+        # Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        
+        DOCKER_REGISTRY=${{ env.DOCKER_REGISTRY }}
+        DOCKER_USERNAME=${{ github.repository_owner }}
+        BACKEND_VERSION=${{ steps.meta.outputs.VERSION }}
+        FRONTEND_VERSION=${{ steps.meta.outputs.VERSION }}
+        
+        # Application ports
+        FRONTEND_PORT=3000
+        BACKEND_PORT=8080
+        POSTGRES_PORT=5432
+        
+        # Database configuration (update with your values)
+        POSTGRES_DB=postgres
+        POSTGRES_USER=postgres
+        POSTGRES_PASSWORD=your-secure-password
+        EOF
+        
+        # Создаем скрипт для быстрого деплоя
+        cat > deployment/deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Deploying DevOps application..."
+        echo "Version: ${{ steps.meta.outputs.VERSION }}"
+        
+        # Загружаем переменные окружения
+        if [ -f .env.deploy ]; then
+            export $(cat .env.deploy | grep -v '^#' | xargs)
+        fi
+        
+        # Останавливаем текущие контейнеры
+        docker-compose -f docker-compose.prod.yml down || true
+        
+        # Загружаем новые образы
+        docker pull ${{ steps.meta.outputs.BACKEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}
+        docker pull ${{ steps.meta.outputs.FRONTEND_IMAGE }}:${{ steps.meta.outputs.VERSION }}
+        
+        # Запускаем приложение
+        docker-compose -f docker-compose.prod.yml --env-file .env.deploy up -d
+        
+        echo "✅ Deployment completed!"
+        echo "Backend: http://localhost:${BACKEND_PORT:-8080}"
+        echo "Frontend: http://localhost:${FRONTEND_PORT:-3000}"
+        EOF
+        
+        chmod +x deployment/deploy.sh
+        
+        echo "📦 Deployment artifacts created:"
+        ls -la deployment/
+
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-${{ steps.meta.outputs.VERSION }}
+        path: deployment/
+        retention-days: 30
