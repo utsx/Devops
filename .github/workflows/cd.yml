@@ -1,0 +1,286 @@
+name: Continuous Deployment
+
+on:
+  workflow_run:
+    workflows: ["CI Pipeline"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Окружение для развертывания'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      version:
+        description: 'Версия для развертывания (оставьте пустым для latest)'
+        required: false
+        type: string
+
+env:
+  DOCKER_REGISTRY: 'docker.io'
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  # Проверка готовности к развертыванию
+  pre-deployment-checks:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    outputs:
+      deploy-environment: ${{ steps.determine-env.outputs.environment }}
+      deploy-version: ${{ steps.determine-version.outputs.version }}
+      should-deploy: ${{ steps.checks.outputs.should-deploy }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Determine deployment environment
+      id: determine-env
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          ENVIRONMENT="${{ github.event.inputs.environment }}"
+        else
+          # Автоматическое развертывание в staging для main ветки
+          ENVIRONMENT="staging"
+        fi
+        echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+        echo "🎯 Target environment: ${ENVIRONMENT}"
+
+    - name: Determine deployment version
+      id: determine-version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.version }}" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          # Используем SHA коммита для автоматических развертываний
+          VERSION="latest"
+        fi
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "📦 Deploy version: ${VERSION}"
+
+    - name: Run pre-deployment checks
+      id: checks
+      run: |
+        echo "🔍 Running pre-deployment checks..."
+        
+        # Проверяем наличие необходимых секретов
+        MISSING_SECRETS=""
+        
+        if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
+          MISSING_SECRETS="${MISSING_SECRETS} DOCKER_USERNAME"
+        fi
+        
+        if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
+          MISSING_SECRETS="${MISSING_SECRETS} DOCKER_PASSWORD"
+        fi
+        
+        if [ -z "${{ secrets.KUBE_CONFIG }}" ]; then
+          MISSING_SECRETS="${MISSING_SECRETS} KUBE_CONFIG"
+        fi
+        
+        if [ -n "$MISSING_SECRETS" ]; then
+          echo "❌ Missing required secrets:${MISSING_SECRETS}"
+          echo "should-deploy=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+        
+        echo "✅ All pre-deployment checks passed"
+        echo "should-deploy=true" >> $GITHUB_OUTPUT
+
+    - name: Update deployment summary
+      run: |
+        echo "## 🚀 Deployment Plan" >> $GITHUB_STEP_SUMMARY
+        echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | \`${{ steps.determine-env.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| Version | \`${{ steps.determine-version.outputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # Развертывание в Kubernetes
+  deploy-to-kubernetes:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-checks]
+    if: needs.pre-deployment-checks.outputs.should-deploy == 'true'
+    environment: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Configure kubectl
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > kubeconfig
+        export KUBECONFIG=kubeconfig
+        kubectl config current-context
+        kubectl get nodes
+
+    - name: Login to Docker Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Prepare Kubernetes manifests
+      run: |
+        # Создаем временную директорию для манифестов
+        mkdir -p k8s-deploy
+        
+        # Копируем базовые манифесты
+        cp terraform/k8s-manifests.yaml k8s-deploy/
+        
+        # Обновляем образы в манифестах
+        VERSION="${{ needs.pre-deployment-checks.outputs.deploy-version }}"
+        DOCKER_USERNAME="${{ secrets.DOCKER_USERNAME }}"
+        
+        sed -i "s|utsx/devops-backend:latest|${DOCKER_USERNAME}/devops-backend:${VERSION}|g" k8s-deploy/k8s-manifests.yaml
+        sed -i "s|utsx/devops-frontend:latest|${DOCKER_USERNAME}/devops-frontend:${VERSION}|g" k8s-deploy/k8s-manifests.yaml
+        
+        # Добавляем метки для отслеживания развертывания
+        DEPLOYMENT_ID="deploy-$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA:0:7}"
+        echo "DEPLOYMENT_ID=${DEPLOYMENT_ID}" >> $GITHUB_ENV
+        
+        echo "📦 Prepared manifests for deployment ${DEPLOYMENT_ID}"
+
+    - name: Deploy to Kubernetes
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        echo "🚀 Deploying to Kubernetes cluster..."
+        
+        # Применяем основные манифесты
+        kubectl apply -f k8s-deploy/k8s-manifests.yaml
+        
+        echo "✅ Manifests applied successfully"
+
+    - name: Wait for deployment rollout
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        echo "⏳ Waiting for deployments to complete..."
+        
+        # Ждем завершения развертывания backend
+        kubectl rollout status deployment/devops-backend -n devops-app --timeout=600s
+        
+        # Ждем завершения развертывания frontend
+        kubectl rollout status deployment/devops-frontend -n devops-app --timeout=600s
+        
+        echo "✅ All deployments completed successfully"
+
+    - name: Verify deployment
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        echo "🔍 Verifying deployment..."
+        
+        # Проверяем статус подов
+        kubectl get pods -n devops-app -o wide
+        
+        # Проверяем сервисы
+        kubectl get services -n devops-app
+        
+        # Получаем внешний IP
+        EXTERNAL_IP=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+        echo "EXTERNAL_IP=${EXTERNAL_IP}" >> $GITHUB_ENV
+        
+        echo "✅ Deployment verification completed"
+
+    - name: Update deployment summary
+      run: |
+        export KUBECONFIG=kubeconfig
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎉 Deployment Completed" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|---------|" >> $GITHUB_STEP_SUMMARY
+        
+        # Статус backend
+        BACKEND_STATUS=$(kubectl get deployment devops-backend -n devops-app -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+        if [ "$BACKEND_STATUS" = "True" ]; then
+          echo "| Backend | ✅ Running | Deployment successful |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Backend | ❌ Failed | Check logs for details |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Статус frontend
+        FRONTEND_STATUS=$(kubectl get deployment devops-frontend -n devops-app -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+        if [ "$FRONTEND_STATUS" = "True" ]; then
+          echo "| Frontend | ✅ Running | Deployment successful |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Frontend | ❌ Failed | Check logs for details |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Статус базы данных
+        DB_STATUS=$(kubectl get deployment postgres -n devops-app -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+        if [ "$DB_STATUS" = "True" ]; then
+          echo "| Database | ✅ Running | PostgreSQL ready |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Database | ❌ Failed | Check logs for details |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Access Information" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ env.EXTERNAL_IP }}" != "pending" ] && [ -n "${{ env.EXTERNAL_IP }}" ]; then
+          echo "- **Application URL**: http://${{ env.EXTERNAL_IP }}" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Application URL**: External IP is being assigned..." >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "- **Environment**: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: ${{ needs.pre-deployment-checks.outputs.deploy-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Deployment ID**: ${{ env.DEPLOYMENT_ID }}" >> $GITHUB_STEP_SUMMARY
+
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f kubeconfig
+        rm -rf k8s-deploy
+
+  # Уведомления о результатах развертывания
+  notify-deployment-result:
+    name: Notify Deployment Result
+    runs-on: ubuntu-latest
+    needs: [pre-deployment-checks, deploy-to-kubernetes]
+    if: always() && needs.pre-deployment-checks.outputs.should-deploy == 'true'
+    
+    steps:
+    - name: Determine deployment status
+      id: status
+      run: |
+        if [ "${{ needs.deploy-to-kubernetes.result }}" = "success" ]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "message=✅ Deployment completed successfully" >> $GITHUB_OUTPUT
+        else
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "message=❌ Deployment failed" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create deployment summary
+      run: |
+        echo "## 📊 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Environment**: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Version**: ${{ needs.pre-deployment-checks.outputs.deploy-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.status.outputs.status }}" = "success" ]; then
+          echo "🎉 **The application has been successfully deployed and is ready for use!**" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "🔧 **Please check the deployment logs and fix any issues before retrying.**" >> $GITHUB_STEP_SUMMARY
+        fi
