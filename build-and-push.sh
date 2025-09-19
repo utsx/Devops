@@ -41,6 +41,29 @@ if ! command -v docker-compose &> /dev/null; then
     exit 1
 fi
 
+# Настройка Docker buildx для мультиплатформенной сборки
+setup_buildx() {
+    log "Настройка Docker buildx для мультиплатформенной сборки..."
+    
+    # Проверяем, доступен ли buildx
+    if ! docker buildx version &> /dev/null; then
+        error "Docker buildx недоступен. Обновите Docker до версии 19.03 или выше"
+        exit 1
+    fi
+    
+    # Создаем новый builder если не существует
+    if ! docker buildx ls | grep -q "multiarch"; then
+        log "Создание нового buildx builder..."
+        docker buildx create --name multiarch --driver docker-container --use
+        docker buildx inspect --bootstrap
+    else
+        log "Используем существующий buildx builder..."
+        docker buildx use multiarch
+    fi
+    
+    success "Docker buildx настроен"
+}
+
 # Загрузка переменных окружения
 if [ -f .env.prod ]; then
     log "Загрузка переменных окружения из .env.prod"
@@ -82,24 +105,30 @@ if ! docker info | grep -q "Username"; then
     fi
 fi
 
-# Сборка Backend образа
-log "Сборка Backend образа..."
-docker build -t $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION ./backend
-docker tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest
+# Настройка buildx
+setup_buildx
 
-# Сборка Frontend образа
-log "Сборка Frontend образа..."
-docker build -t $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION ./frontend
-docker tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest
+# Определяем платформы для сборки
+PLATFORMS="linux/amd64,linux/arm64"
+log "Целевые платформы: $PLATFORMS"
 
-# Публикация образов
-log "Публикация Backend образа..."
-docker push $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION
-docker push $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest
+# Сборка и публикация Backend образа
+log "Сборка и публикация Backend образа для мультиплатформ..."
+docker buildx build \
+    --platform $PLATFORMS \
+    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION \
+    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest \
+    --push \
+    ./backend
 
-log "Публикация Frontend образа..."
-docker push $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION
-docker push $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest
+# Сборка и публикация Frontend образа
+log "Сборка и публикация Frontend образа для мультиплатформ..."
+docker buildx build \
+    --platform $PLATFORMS \
+    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION \
+    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest \
+    --push \
+    ./frontend
 
 # Вывод информации об образах
 log "Информация о созданных образах:"
@@ -112,16 +141,13 @@ echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest"
 
 success "Все образы успешно собраны и опубликованы!"
 
-# Очистка локальных образов (опционально)
-read -p "Удалить локальные образы для экономии места? (y/n): " -n 1 -r
+# Очистка buildx кэша (опционально)
+read -p "Очистить buildx кэш для экономии места? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    log "Удаление локальных образов..."
-    docker rmi $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION || true
-    docker rmi $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest || true
-    docker rmi $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION || true
-    docker rmi $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest || true
-    success "Локальные образы удалены"
+    log "Очистка buildx кэша..."
+    docker buildx prune -f
+    success "Buildx кэш очищен"
 fi
 
 log "Для развертывания используйте:"
