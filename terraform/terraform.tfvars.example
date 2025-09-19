@@ -6,21 +6,44 @@ yandex_cloud_id  = "your-cloud-id-here"
 yandex_folder_id = "your-folder-id-here"
 yandex_zone      = "ru-central1-a"
 
-# Настройки виртуальной машины
-vm_name        = "devops-vm"
-vm_platform_id = "standard-v3"
-vm_cores       = 2
-vm_memory      = 4
-vm_core_fraction = 100
-vm_disk_size   = 20
-vm_disk_type   = "network-hdd"
-vm_image_family = "ubuntu-2204-lts"
-vm_preemptible = false
+# Настройки Kubernetes кластера
+k8s_cluster_name           = "devops-k8s-cluster"
+k8s_version               = "1.30"
+k8s_release_channel       = "STABLE"  # RAPID, REGULAR, STABLE
+k8s_network_policy_provider = "CALICO"
+k8s_service_account_name  = "k8s-cluster-sa"
+
+# Настройки группы узлов
+node_group_name           = "devops-node-group"
+node_group_platform_id    = "standard-v3"
+node_group_cores          = 2
+node_group_memory         = 4
+node_group_core_fraction  = 100
+node_group_disk_size      = 64
+node_group_disk_type      = "network-ssd"
+node_group_preemptible    = false
+
+# Политика масштабирования (выберите один из вариантов)
+# Фиксированное количество узлов
+node_group_scale_policy = {
+  fixed_scale = {
+    size = 2
+  }
+}
+
+# Автомасштабирование (альтернатива фиксированному)
+# node_group_scale_policy = {
+#   auto_scale = {
+#     min     = 1
+#     max     = 5
+#     initial = 2
+#   }
+# }
 
 # Настройки сети
 subnet_cidr = "10.2.0.0/16"
 
-# SSH настройки (выберите один из вариантов)
+# SSH настройки для узлов кластера (выберите один из вариантов)
 
 # Вариант 1: Указать содержимое ключа напрямую (рекомендуется)
 ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-public-key-content-here"
@@ -29,6 +52,10 @@ ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-public-key-con
 # ssh_public_key_path = "~/.ssh/id_rsa.pub"
 
 ssh_user = "ubuntu"
+
+# Docker образы для приложений
+frontend_image = "utsx/devops-frontend:latest"
+backend_image  = "utsx/devops-backend:latest"
 
 # Метки для ресурсов
 labels = {
@@ -41,22 +68,43 @@ labels = {
 # Примеры других конфигураций:
 
 # Для production окружения:
-# vm_cores       = 4
-# vm_memory      = 8
-# vm_disk_size   = 50
-# vm_disk_type   = "network-ssd"
-# vm_preemptible = false
+# k8s_release_channel      = "STABLE"
+# node_group_cores         = 4
+# node_group_memory        = 8
+# node_group_disk_size     = 100
+# node_group_disk_type     = "network-ssd"
+# node_group_preemptible   = false
+# node_group_scale_policy = {
+#   auto_scale = {
+#     min     = 3
+#     max     = 10
+#     initial = 3
+#   }
+# }
 
 # Для тестового окружения (экономия средств):
-# vm_cores       = 2
-# vm_memory      = 2
-# vm_disk_size   = 10
-# vm_disk_type   = "network-hdd"
-# vm_preemptible = true
+# k8s_release_channel      = "REGULAR"
+# node_group_cores         = 2
+# node_group_memory        = 2
+# node_group_disk_size     = 32
+# node_group_disk_type     = "network-hdd"
+# node_group_preemptible   = true
+# node_group_scale_policy = {
+#   fixed_scale = {
+#     size = 1
+#   }
+# }
 
 # Для высокопроизводительных задач:
-# vm_platform_id = "standard-v3"
-# vm_cores       = 8
-# vm_memory      = 16
-# vm_core_fraction = 100
-# vm_disk_type   = "network-ssd"
+# node_group_platform_id   = "standard-v3"
+# node_group_cores         = 8
+# node_group_memory        = 16
+# node_group_core_fraction = 100
+# node_group_disk_type     = "network-ssd"
+# node_group_scale_policy = {
+#   auto_scale = {
+#     min     = 2
+#     max     = 8
+#     initial = 4
+#   }
+# }

@@ -21,60 +21,96 @@ variable "yandex_zone" {
   default     = "ru-central1-a"
 }
 
-# Переменные для виртуальной машины
-variable "vm_name" {
-  description = "Имя виртуальной машины"
+# Переменные для Kubernetes кластера
+variable "k8s_cluster_name" {
+  description = "Имя Kubernetes кластера"
   type        = string
-  default     = "devops-vm"
+  default     = "devops-k8s-cluster"
 }
 
-variable "vm_platform_id" {
-  description = "Платформа для ВМ"
+variable "k8s_version" {
+  description = "Версия Kubernetes"
+  type        = string
+  default     = "1.28"
+}
+
+variable "k8s_release_channel" {
+  description = "Канал обновлений Kubernetes"
+  type        = string
+  default     = "STABLE"
+  validation {
+    condition     = contains(["RAPID", "REGULAR", "STABLE"], var.k8s_release_channel)
+    error_message = "Канал обновлений должен быть одним из: RAPID, REGULAR, STABLE."
+  }
+}
+
+variable "k8s_network_policy_provider" {
+  description = "Провайдер сетевых политик"
+  type        = string
+  default     = "CALICO"
+}
+
+variable "k8s_service_account_name" {
+  description = "Имя сервисного аккаунта для кластера"
+  type        = string
+  default     = "k8s-cluster-sa"
+}
+
+# Переменные для группы узлов
+variable "node_group_name" {
+  description = "Имя группы узлов"
+  type        = string
+  default     = "devops-node-group"
+}
+
+variable "node_group_platform_id" {
+  description = "Платформа для узлов"
   type        = string
   default     = "standard-v3"
 }
 
-variable "vm_cores" {
-  description = "Количество ядер CPU"
+variable "node_group_cores" {
+  description = "Количество ядер CPU для узлов"
   type        = number
   default     = 2
 }
 
-variable "vm_memory" {
-  description = "Объем оперативной памяти в ГБ"
+variable "node_group_memory" {
+  description = "Объем оперативной памяти для узлов в ГБ"
   type        = number
   default     = 4
 }
 
-variable "vm_core_fraction" {
-  description = "Гарантированная доля vCPU"
+variable "node_group_core_fraction" {
+  description = "Гарантированная доля vCPU для узлов"
   type        = number
   default     = 100
 }
 
-variable "vm_disk_size" {
-  description = "Размер диска в ГБ"
+variable "node_group_disk_size" {
+  description = "Размер диска для узлов в ГБ"
   type        = number
-  default     = 20
+  default     = 64
 }
 
-variable "vm_disk_type" {
-  description = "Тип диска"
+variable "node_group_disk_type" {
+  description = "Тип диска для узлов"
   type        = string
-  default     = "network-hdd"
+  default     = "network-ssd"
 }
 
-variable "vm_image_family" {
-  description = "Семейство образа ОС"
-  type        = string
-  default     = "ubuntu-2204-lts"
-}
-
-variable "vm_preemptible" {
-  description = "Прерываемая ВМ (дешевле)"
+variable "node_group_preemptible" {
+  description = "Прерываемые узлы (дешевле)"
   type        = bool
   default     = false
 }
+
+variable "node_group_replicas" {
+  description = "Количество узлов в группе"
+  type        = number
+  default     = 2
+}
+
 
 # Переменные для сети
 variable "subnet_cidr" {
@@ -83,21 +119,21 @@ variable "subnet_cidr" {
   default     = "10.2.0.0/16"
 }
 
-# SSH ключ
+# SSH ключ для узлов кластера
 variable "ssh_public_key" {
-  description = "Содержимое публичного SSH ключа"
+  description = "Содержимое публичного SSH ключа для узлов кластера"
   type        = string
   default     = null
 }
 
 variable "ssh_public_key_path" {
-  description = "Путь к публичному SSH ключу (альтернатива ssh_public_key)"
+  description = "Путь к публичному SSH ключу"
   type        = string
-  default     = null
+  default     = "~/.ssh/id_rsa.pub"
 }
 
 variable "ssh_user" {
-  description = "Имя пользователя для SSH подключения"
+  description = "Имя пользователя для SSH подключения к узлам"
   type        = string
   default     = "ubuntu"
 }

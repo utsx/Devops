@@ -6,6 +6,10 @@ terraform {
       source  = "yandex-cloud/yandex"
       version = "~> 0.100"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.20"
+    }
     null = {
       source  = "hashicorp/null"
       version = "~> 3.0"

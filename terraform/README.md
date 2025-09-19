@@ -1,346 +1,293 @@
-# Развертывание виртуальной машины в Яндекс.Облаке с помощью Terraform
+# Простое развертывание DevOps приложения в Kubernetes
 
-Этот проект содержит конфигурацию Terraform для автоматического развертывания виртуальной машины в Яндекс.Облаке с предустановленным Docker и Docker Compose.
+Упрощенная конфигурация Terraform для развертывания Kubernetes кластера в Яндекс.Облаке с приложениями из Docker Hub.
 
-## Структура проекта
+## Что развертывается
 
-```
-terraform/
-├── main.tf                    # Основная конфигурация ресурсов
-├── variables.tf               # Определение переменных
-├── outputs.tf                 # Выходные данные
-├── versions.tf                # Конфигурация провайдеров
-├── cloud-init.yaml           # Скрипт инициализации ВМ
-├── terraform.tfvars.example  # Пример файла с переменными
-└── README.md                 # Данная инструкция
-```
+- **Kubernetes кластер** в Yandex Cloud
+- **Frontend**: React приложение из образа `utsx/devops-frontend:latest`
+- **Backend**: Spring Boot приложение из образа `utsx/devops-backend:latest`
+- **PostgreSQL**: База данных для backend
+- **LoadBalancer** для внешнего доступа
 
-## Что создается
+## Быстрый старт
 
-- **VPC сеть** с подсетью
-- **Группа безопасности** с правилами для SSH, HTTP, HTTPS и портов приложения
-- **Виртуальная машина** Ubuntu 22.04 LTS с автоматической установкой:
-  - Docker и Docker Compose
-  - Базовые утилиты (git, curl, wget, htop)
-  - Настройка пользователя для работы с Docker
-
-## Предварительные требования
-
-### 1. Установка Terraform
+### 1. Установите необходимые инструменты
 
 ```bash
-# macOS (с помощью Homebrew)
-brew install terraform
+# Yandex Cloud CLI
+curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
+yc init
 
-# Ubuntu/Debian
-wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-sudo apt update && sudo apt install terraform
+# Terraform
+brew install terraform  # macOS
+# или скачайте с https://terraform.io/downloads
+
+# kubectl
+brew install kubectl    # macOS
 ```
 
-### 2. Настройка Яндекс.Облака
+### 2. Настройте переменные
 
-1. **Получите OAuth токен:**
-   - Перейдите на https://oauth.yandex.ru/authorize?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb
-   - Авторизуйтесь и скопируйте токен
-
-2. **Найдите ID облака и папки:**
-   ```bash
-   # Установите Yandex Cloud CLI
-   curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
-   
-   # Инициализируйте CLI
-   yc init
-   
-   # Получите ID облака
-   yc resource-manager cloud list
-   
-   # Получите ID папки
-   yc resource-manager folder list
-   ```
-
-### 3. Создание SSH ключей
-
-```bash
-# Создайте SSH ключи, если их нет
-ssh-keygen -t rsa -b 4096 -C "your-email@example.com"
-
-# Убедитесь, что публичный ключ существует
-ls ~/.ssh/id_rsa.pub
-```
-
-## Развертывание
-
-### 1. Подготовка конфигурации
-
-```bash
-# Перейдите в директорию terraform
-cd terraform
-
-# Скопируйте пример файла с переменными
-cp terraform.tfvars.example terraform.tfvars
-
-# Отредактируйте файл terraform.tfvars
-nano terraform.tfvars
-```
-
-### 2. Заполните terraform.tfvars
+Отредактируйте файл `terraform.tfvars`:
 
 ```hcl
 # Обязательные параметры
-yandex_token     = "your-oauth-token-here"
-yandex_cloud_id  = "your-cloud-id-here"
-yandex_folder_id = "your-folder-id-here"
+yandex_token     = "ваш-oauth-токен"
+yandex_cloud_id  = "ваш-cloud-id"
+yandex_folder_id = "ваш-folder-id"
 
-# SSH ключ (выберите один из вариантов)
-# Вариант 1: Содержимое ключа (рекомендуется)
-ssh_public_key   = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-public-key-content-here"
-
-# Вариант 2: Путь к файлу ключа (альтернатива)
-# ssh_public_key_path = "~/.ssh/id_rsa.pub"
-
-# Опциональные параметры (можно оставить по умолчанию)
-yandex_zone      = "ru-central1-a"
-vm_name          = "devops-vm"
-vm_cores         = 2
-vm_memory        = 4
-ssh_user         = "ubuntu"
+# SSH ключ (замените на свой)
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIH3vKMnXEDmroTNHyGDNyN8AfZB/naf2ai6SukPpXaXE user@host"
 ```
 
-### Настройка SSH ключа
-
-**Вариант 1 (рекомендуется): Содержимое ключа**
-```bash
-# Выведите содержимое публичного ключа
-cat ~/.ssh/id_rsa.pub
-
-# Скопируйте весь вывод и вставьте в переменную ssh_public_key
-```
-
-**Вариант 2: Путь к файлу ключа**
-```hcl
-# В terraform.tfvars укажите путь к ключу
-ssh_public_key_path = "~/.ssh/id_rsa.pub"
-```
-
-### 3. Инициализация и развертывание
+### 3. Разверните одной командой
 
 ```bash
-# Инициализация Terraform
+./deploy.sh
+```
+
+Или вручную:
+
+```bash
+# 1. Создайте кластер
 terraform init
+terraform apply -auto-approve
 
-# Проверка конфигурации
-terraform validate
+# 2. Настройте kubectl
+yc managed-kubernetes cluster get-credentials devops-k8s-cluster --external --force
 
-# Просмотр плана развертывания
-terraform plan
+# 3. Разверните приложения
+kubectl apply -f k8s-manifests.yaml
 
-# Применение конфигурации
-terraform apply
+# 4. Проверьте статус
+kubectl get pods -n devops-app
+kubectl get services -n devops-app
 ```
 
-### 4. Подключение к ВМ
-
-После успешного развертывания вы получите выходные данные с IP адресом и командой для подключения:
+### 4. Получите URL приложения
 
 ```bash
-# Подключение по SSH
-ssh ubuntu@<external-ip>
+# Проверить статус LoadBalancer
+kubectl get services -n devops-app devops-frontend-service
 
-# Проверка установки Docker
-docker --version
-docker-compose --version
+# Ждать назначения внешнего IP (может занять несколько минут)
+kubectl get services -n devops-app devops-frontend-service -w
+
+# Получить внешний IP
+EXTERNAL_IP=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "Frontend доступен по адресу: http://$EXTERNAL_IP"
+
+# Проверить доступность frontend
+curl -I http://$EXTERNAL_IP
+
+# Проверить API через frontend
+curl http://$EXTERNAL_IP/api/actuator/health
 ```
 
-## Использование
+Найдите EXTERNAL-IP и откройте в браузере: `http://EXTERNAL-IP`
 
-### Развертывание вашего приложения
+**Проверка API:**
+- Frontend: `http://EXTERNAL-IP`
+- API через frontend: `http://EXTERNAL-IP/api/actuator/health`
+
+## Архитектура
+
+```
+Internet
+    ↓
+LoadBalancer (Frontend Service)
+    ↓
+Frontend Pods (utsx/devops-frontend:latest)
+    ↓ /api/*
+Backend Pods (utsx/devops-backend:latest)
+    ↓
+PostgreSQL Pod
+```
+
+## Основные компоненты
+
+### Kubernetes кластер
+- **Версия**: 1.30
+- **Узлы**: 2 узла standard-v3 (2 CPU, 4GB RAM)
+- **Сеть**: Автоматически созданная VPC
+
+### Приложения
+- **Frontend**: 2 реплики, порт 80, LoadBalancer
+- **Backend**: 2 реплики, порт 8080, ClusterIP
+- **Namespace**: devops-app
+
+## Полезные команды
 
 ```bash
-# Подключитесь к ВМ
-ssh ubuntu@<external-ip>
+# Статус приложений
+kubectl get pods -n devops-app
+kubectl get services -n devops-app
 
-# Склонируйте ваш проект
-git clone <your-repository-url>
-cd <your-project>
+# Логи
+kubectl logs -l app=devops-frontend -n devops-app
+kubectl logs -l app=devops-backend -n devops-app
 
-# Запустите приложение с помощью Docker Compose
-docker-compose up -d
+# Масштабирование
+kubectl scale deployment devops-frontend --replicas=3 -n devops-app
 
-# Проверьте статус контейнеров
-docker-compose ps
+# Обновление образа
+kubectl set image deployment/devops-frontend frontend=utsx/devops-frontend:v2.0 -n devops-app
+
+# Перезапуск
+kubectl rollout restart deployment/devops-frontend -n devops-app
 ```
 
-### Доступ к приложению
-
-После развертывания приложение будет доступно по следующим адресам:
-- Frontend: `http://<external-ip>:3000`
-- Backend API: `http://<external-ip>:8080`
-- Nginx (если настроен): `http://<external-ip>`
-
-## Управление инфраструктурой
-
-### Просмотр состояния
+## Получение учетных данных Yandex Cloud
 
 ```bash
-# Просмотр текущего состояния
-terraform show
+# OAuth токен
+yc iam create-token
 
-# Список ресурсов
-terraform state list
-
-# Получение выходных данных
-terraform output
+# ID облака и папки
+yc resource-manager cloud list
+yc resource-manager folder list
 ```
 
-### Изменение конфигурации
+## Структура файлов
+
+```
+terraform/
+├── main.tf              # Основная конфигурация
+├── variables.tf         # Переменные
+├── outputs.tf           # Выходные данные
+├── versions.tf          # Версии провайдеров
+├── terraform.tfvars     # Ваши настройки
+├── k8s-manifests.yaml   # Манифесты приложений
+├── deploy.sh            # Скрипт развертывания
+└── README.md            # Эта документация
+```
+
+## Troubleshooting
+
+### Поды не запускаются (ContainerCreating)
+```bash
+# Подробная информация о поде
+kubectl describe pod <pod-name> -n devops-app
+
+# События в namespace
+kubectl get events -n devops-app --sort-by='.lastTimestamp'
+
+# Проверить ConfigMap
+kubectl get configmap frontend-nginx-config -n devops-app -o yaml
+
+# Проверить доступность образов
+kubectl get pods -n devops-app -o jsonpath='{.items[*].spec.containers[*].image}'
+
+# Логи контейнера (если запустился)
+kubectl logs <pod-name> -n devops-app
+
+# Проверить ресурсы узлов
+kubectl describe nodes
+```
+
+### InitContainer ждет PostgreSQL
+Если backend поды показывают "Initialized: False", проверьте:
+```bash
+# Статус PostgreSQL
+kubectl get pods -l app=postgres -n devops-app
+
+# Логи initContainer
+kubectl logs <backend-pod-name> -c wait-for-postgres -n devops-app
+
+# Логи PostgreSQL
+kubectl logs -l app=postgres -n devops-app
+
+# Проверка сетевого подключения
+kubectl exec -it <backend-pod-name> -c wait-for-postgres -n devops-app -- nslookup postgres
+kubectl exec -it <backend-pod-name> -c wait-for-postgres -n devops-app -- ping postgres
+```
+
+### Проблемы с сетью между подами
+```bash
+# Проверить endpoints
+kubectl get endpoints -n devops-app
+
+# Проверить сервисы
+kubectl get services -n devops-app
+
+# Тест подключения из другого пода
+kubectl run test-pod --image=postgres:15-alpine -n devops-app --rm -it -- pg_isready -h postgres -p 5432
+```
+
+### LoadBalancer не получает IP
+```bash
+# Проверить статус LoadBalancer
+kubectl describe service devops-frontend-service -n devops-app
+
+# Проверить события
+kubectl get events -n devops-app | grep LoadBalancer
+
+# Проверить квоты Yandex Cloud
+yc compute address list
+
+# Проверить лимиты на внешние IP
+yc resource-manager quota list --folder-id <your-folder-id>
+
+# Ждать назначения IP (может занять до 5 минут)
+kubectl get services -n devops-app devops-frontend-service -w
+```
+
+### Frontend недоступен из интернета
+```bash
+# Получить внешний IP
+EXTERNAL_IP=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+echo "External IP: $EXTERNAL_IP"
+
+# Проверить доступность
+curl -v http://$EXTERNAL_IP
+
+# Проверить статус подов frontend
+kubectl get pods -l app=devops-frontend -n devops-app
+
+# Проверить логи frontend
+kubectl logs -l app=devops-frontend -n devops-app
+```
+
+### Проблемы с образами
+```bash
+# Принудительное обновление
+kubectl rollout restart deployment/devops-frontend -n devops-app
+kubectl rollout restart deployment/devops-backend -n devops-app
+```
+
+### Переподключение к кластеру
+```bash
+yc managed-kubernetes cluster get-credentials devops-k8s-cluster --external --force
+```
+
+### Очистка существующего контекста kubectl
+Если получаете ошибку "Context already exists", выполните:
+```bash
+kubectl config unset contexts.yc-devops-k8s-cluster
+kubectl config unset users.yc-devops-k8s-cluster
+kubectl config unset clusters.yc-devops-k8s-cluster
+```
+Затем повторите команду получения учетных данных.
+
+## Удаление
 
 ```bash
-# После изменения файлов конфигурации
-terraform plan
-terraform apply
+terraform destroy -auto-approve
 ```
 
-### Удаление ресурсов
+## Стоимость
 
-```bash
-# Удаление всех созданных ресурсов
-terraform destroy
-```
+Примерно 5000 ₽/месяц для тестового окружения (2 узла standard-v3).
 
-## Настройка переменных
+## Что упрощено
 
-### Основные переменные
+По сравнению с полной конфигурацией убрано:
+- PostgreSQL база данных
+- Сложные политики масштабирования
+- HPA (автомасштабирование)
+- NetworkPolicy
+- Ingress контроллер
+- Мониторинг и метрики
 
-| Переменная | Описание | По умолчанию |
-|------------|----------|--------------|
-| `yandex_token` | OAuth токен | - |
-| `yandex_cloud_id` | ID облака | - |
-| `yandex_folder_id` | ID папки | - |
-| `ssh_public_key` | Содержимое публичного SSH ключа | `null` |
-| `ssh_public_key_path` | Путь к файлу SSH ключа | `null` |
-| `yandex_zone` | Зона доступности | `ru-central1-a` |
-| `vm_name` | Имя ВМ | `devops-vm` |
-| `vm_cores` | Количество ядер | `2` |
-| `vm_memory` | Объем памяти (ГБ) | `4` |
-| `vm_disk_size` | Размер диска (ГБ) | `20` |
-| `ssh_user` | Пользователь SSH | `ubuntu` |
-
-### Примеры конфигураций
-
-**Экономичная конфигурация:**
-```hcl
-vm_cores       = 2
-vm_memory      = 2
-vm_disk_size   = 10
-vm_disk_type   = "network-hdd"
-vm_preemptible = true
-```
-
-**Производительная конфигурация:**
-```hcl
-vm_cores       = 4
-vm_memory      = 8
-vm_disk_size   = 50
-vm_disk_type   = "network-ssd"
-vm_preemptible = false
-```
-
-## Безопасность
-
-### Группа безопасности
-
-Автоматически создается группа безопасности с правилами для:
-- SSH (порт 22)
-- HTTP (порт 80)
-- HTTPS (порт 443)
-- Backend API (порт 8080)
-- Frontend Dev Server (порт 3000)
-
-### Рекомендации
-
-1. **Ограничьте SSH доступ** по IP адресам в production
-2. **Используйте HTTPS** для production развертывания
-3. **Регулярно обновляйте** систему и Docker
-4. **Настройте мониторинг** и логирование
-
-## Устранение неполадок
-
-### Проблемы с SSH
-
-```bash
-# Проверьте права на SSH ключ
-chmod 600 ~/.ssh/id_rsa
-chmod 644 ~/.ssh/id_rsa.pub
-
-# Проверьте подключение
-ssh -v ubuntu@<external-ip>
-```
-
-### Проблемы с Docker
-
-```bash
-# Проверьте статус Docker на ВМ
-sudo systemctl status docker
-
-# Перезапустите Docker
-sudo systemctl restart docker
-
-# Проверьте логи cloud-init
-sudo cat /var/log/cloud-init-output.log
-```
-
-### Проблемы с Terraform
-
-```bash
-# Обновите состояние
-terraform refresh
-
-# Проверьте логи
-export TF_LOG=DEBUG
-terraform apply
-```
-
-## Мониторинг и логи
-
-### Просмотр логов на ВМ
-
-```bash
-# Логи cloud-init
-sudo cat /var/log/cloud-init-output.log
-
-# Логи Docker
-sudo journalctl -u docker
-
-# Логи приложения
-docker-compose logs
-```
-
-### Мониторинг ресурсов
-
-```bash
-# Использование ресурсов
-htop
-
-# Использование диска
-df -h
-
-# Сетевые подключения
-netstat -tulpn
-```
-
-## Поддержка
-
-При возникновении проблем:
-
-1. Проверьте логи Terraform: `terraform apply` с флагом `-auto-approve=false`
-2. Проверьте логи cloud-init на ВМ: `/var/log/cloud-init-output.log`
-3. Убедитесь в правильности заполнения `terraform.tfvars`
-4. Проверьте квоты в Яндекс.Облаке
-
-## Полезные ссылки
-
-- [Документация Terraform](https://www.terraform.io/docs)
-- [Провайдер Yandex Cloud](https://registry.terraform.io/providers/yandex-cloud/yandex/latest/docs)
-- [Документация Яндекс.Облака](https://cloud.yandex.ru/docs)
-- [Docker Documentation](https://docs.docker.com/)
+Приложения используют встроенную H2 базу данных для простоты.

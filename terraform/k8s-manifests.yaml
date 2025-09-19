@@ -1,0 +1,406 @@
+---
+# Namespace для приложения
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: devops-app
+  labels:
+    name: devops-app
+    project: devops
+    managed-by: terraform
+
+---
+# Deployment для Backend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-backend
+  namespace: devops-app
+  labels:
+    app: devops-backend
+    component: api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-backend
+  template:
+    metadata:
+      labels:
+        app: devops-backend
+        component: api
+    spec:
+      initContainers:
+      - name: wait-for-postgres
+        image: postgres:15-alpine
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for PostgreSQL to be ready..."
+          until pg_isready -h postgres -p 5432; do
+            echo "PostgreSQL is not ready yet, waiting..."
+            sleep 5
+          done
+          echo "PostgreSQL is ready!"
+      containers:
+      - name: backend
+        image: utsx/devops-backend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "docker"
+        - name: SERVER_PORT
+          value: "8080"
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:postgresql://postgres:5432/devops"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "postgres"
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT
+          value: "60000"
+        - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+          value: "5"
+        - name: SPRING_JPA_DATABASE_PLATFORM
+          value: "org.hibernate.dialect.PostgreSQLDialect"
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: "validate"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      restartPolicy: Always
+
+---
+# Service для Backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-backend-service
+  namespace: devops-app
+  labels:
+    app: devops-backend
+    component: service
+spec:
+  selector:
+    app: devops-backend
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  type: ClusterIP
+
+---
+# ConfigMap для конфигурации nginx frontend
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-nginx-config
+  namespace: devops-app
+  labels:
+    app: devops-frontend
+    component: config
+data:
+  nginx.conf: |
+    server {
+        listen 80;
+        server_name _;
+        root /usr/share/nginx/html;
+        index index.html;
+        
+        # Gzip compression для облака
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_proxied any;
+        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+        
+        # Security headers для облака
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer-when-downgrade" always;
+        add_header Content-Security-Policy "default-src 'self' http: https: data: blob: 'unsafe-inline'" always;
+        
+        # Обслуживание статических файлов React
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+        
+        # Проксирование API запросов к backend
+        location /api/ {
+            proxy_pass http://devops-backend-service:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+            proxy_buffering off;
+        }
+        
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+        
+        # Настройки для статических ресурсов
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+        
+        # Error pages
+        error_page 404 /index.html;
+        error_page 500 502 503 504 /50x.html;
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+    }
+
+---
+# Deployment для Frontend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-frontend
+  namespace: devops-app
+  labels:
+    app: devops-frontend
+    component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: devops-frontend
+  template:
+    metadata:
+      labels:
+        app: devops-frontend
+        component: web
+    spec:
+      containers:
+      - name: frontend
+        image: utsx/devops-frontend:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+          name: http
+        env:
+        - name: REACT_APP_API_URL
+          value: "/api"
+        - name: NGINX_ENTRYPOINT_QUIET_LOGS
+          value: "1"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: nginx.conf
+          readOnly: true
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: frontend-nginx-config
+          defaultMode: 0644
+      restartPolicy: Always
+
+---
+# Service для Frontend с LoadBalancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: devops-frontend-service
+  namespace: devops-app
+  annotations:
+    yandex.cloud/load-balancer-type: external
+    yandex.cloud/target-group-spec: |
+      - name: default
+        healthcheck:
+          type: http
+          port: 80
+          path: /health
+          interval: 10s
+          timeout: 5s
+          healthy_threshold: 2
+          unhealthy_threshold: 2
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    name: http
+    targetPort: 80
+    nodePort: 32757
+  selector:
+    app: devops-frontend
+
+
+
+---
+# Secret для PostgreSQL
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: devops-app
+  labels:
+    app: postgres
+    component: secrets
+type: Opaque
+data:
+  # echo -n "password" | base64
+  POSTGRES_PASSWORD: cGFzc3dvcmQ=
+
+---
+# PostgreSQL Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: devops-app
+  labels:
+    app: postgres
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_DB
+          value: "devops"
+        - name: POSTGRES_USER
+          value: "postgres"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      restartPolicy: Always
+
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: devops-app
+  labels:
+    app: postgres
+    component: service
+spec:
+  selector:
+    app: postgres
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  type: ClusterIP
+  # Убеждаемся что сервис доступен внутри namespace
+  sessionAffinity: None
+
+---
+# PostgreSQL PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: devops-app
+  labels:
+    app: postgres
+    component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: yc-network-hdd
