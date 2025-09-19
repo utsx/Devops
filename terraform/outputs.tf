@@ -126,34 +126,6 @@ output "useful_commands" {
   }
 }
 
-# Информация о мониторинге
-output "monitoring_info" {
-  description = "Информация о системе мониторинга"
-  value = {
-    prometheus_url = "http://<NODE_IP>:30090"
-    grafana_url    = "http://<NODE_IP>:30030"
-    grafana_credentials = {
-      username = "admin"
-      password = "admin123"
-    }
-    namespace = "monitoring"
-  }
-}
-
-# Команды для мониторинга
-output "monitoring_commands" {
-  description = "Полезные команды для работы с мониторингом"
-  value = {
-    get_monitoring_pods     = "kubectl get pods -n monitoring"
-    get_monitoring_services = "kubectl get services -n monitoring"
-    prometheus_port_forward = "kubectl port-forward -n monitoring svc/prometheus-service 9090:9090"
-    grafana_port_forward    = "kubectl port-forward -n monitoring svc/grafana-service 3000:3000"
-    get_node_ips           = "kubectl get nodes -o wide"
-    check_prometheus_targets = "curl http://<NODE_IP>:30090/targets"
-    check_app_metrics       = "curl http://<POD_IP>:8080/actuator/prometheus"
-  }
-}
-
 # URL приложения (будет доступен после развертывания LoadBalancer)
 output "application_url" {
   description = "URL для доступа к приложению (будет доступен после создания LoadBalancer)"
