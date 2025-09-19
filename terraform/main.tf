@@ -261,3 +261,27 @@ provider "kubernetes" {
     ]
   }
 }
+
+# Применение манифестов мониторинга через kubectl
+resource "null_resource" "apply_monitoring" {
+  provisioner "local-exec" {
+    command = "kubectl apply -f ${path.module}/monitoring.yaml"
+  }
+
+  depends_on = [
+    yandex_kubernetes_cluster.k8s_cluster,
+    yandex_kubernetes_node_group.k8s_node_group
+  ]
+}
+
+# Применение дашбордов Grafana
+resource "null_resource" "apply_grafana_dashboards" {
+  provisioner "local-exec" {
+    command = "kubectl apply -f ${path.module}/grafana-dashboards.yaml"
+  }
+
+  depends_on = [
+    null_resource.apply_monitoring
+  ]
+}
+

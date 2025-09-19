@@ -1,0 +1,479 @@
+---
+# ConfigMap для дашбордов Grafana
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-config
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboards
+data:
+  dashboards.yaml: |-
+    apiVersion: 1
+    providers:
+    - name: 'default'
+      orgId: 1
+      folder: ''
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 10
+      allowUiUpdates: true
+      options:
+        path: /var/lib/grafana/dashboards
+
+---
+# ConfigMap с дашбордом для мониторинга Kubernetes кластера
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubernetes-cluster-dashboard
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard
+data:
+  kubernetes-cluster.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Kubernetes Cluster Monitoring",
+        "tags": ["kubernetes", "cluster"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Cluster Overview",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(up{job=\"kubernetes-nodes\"})",
+                "legendFormat": "Nodes"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "green", "value": null}
+                  ]
+                }
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Pod Status",
+            "type": "piechart",
+            "targets": [
+              {
+                "expr": "count by (phase) (kube_pod_status_phase)",
+                "legendFormat": "{{phase}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "CPU Usage by Node",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "100 - (avg by (instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "legendFormat": "{{instance}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Memory Usage by Node",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                "legendFormat": "{{instance}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+
+---
+# ConfigMap с дашбордом для мониторинга подов DevOps приложения
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devops-pods-dashboard
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard
+data:
+  devops-pods.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "DevOps Application Pods Monitoring",
+        "tags": ["devops", "pods", "application"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Pod Status Overview",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(kube_pod_info{namespace=\"devops-app\"})",
+                "legendFormat": "Total Pods"
+              },
+              {
+                "expr": "count(kube_pod_status_phase{namespace=\"devops-app\", phase=\"Running\"})",
+                "legendFormat": "Running"
+              },
+              {
+                "expr": "count(kube_pod_status_phase{namespace=\"devops-app\", phase=\"Pending\"})",
+                "legendFormat": "Pending"
+              },
+              {
+                "expr": "count(kube_pod_status_phase{namespace=\"devops-app\", phase=\"Failed\"})",
+                "legendFormat": "Failed"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Pod CPU Usage",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{namespace=\"devops-app\", container!=\"POD\", container!=\"\"}[5m]) * 100",
+                "legendFormat": "{{pod}} - {{container}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 3,
+            "title": "Pod Memory Usage",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{namespace=\"devops-app\", container!=\"POD\", container!=\"\"} / 1024 / 1024",
+                "legendFormat": "{{pod}} - {{container}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "MB"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Pod Restart Count",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "kube_pod_container_status_restarts_total{namespace=\"devops-app\"}",
+                "legendFormat": "{{pod}} - {{container}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+          },
+          {
+            "id": 5,
+            "title": "Pod Network I/O",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(container_network_receive_bytes_total{namespace=\"devops-app\"}[5m])",
+                "legendFormat": "{{pod}} - RX"
+              },
+              {
+                "expr": "rate(container_network_transmit_bytes_total{namespace=\"devops-app\"}[5m])",
+                "legendFormat": "{{pod}} - TX"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "Bps"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+          },
+          {
+            "id": 6,
+            "title": "Pod Details Table",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "kube_pod_info{namespace=\"devops-app\"}",
+                "format": "table",
+                "instant": true
+              }
+            ],
+            "transformations": [
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": {
+                    "Time": true,
+                    "__name__": true,
+                    "job": true,
+                    "instance": true
+                  },
+                  "indexByName": {},
+                  "renameByName": {
+                    "pod": "Pod Name",
+                    "node": "Node",
+                    "created_by_kind": "Created By",
+                    "created_by_name": "Controller"
+                  }
+                }
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
+
+---
+# ConfigMap с дашбордом для мониторинга Spring Boot приложения
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spring-boot-dashboard
+  namespace: monitoring
+  labels:
+    app: grafana
+    component: dashboard
+data:
+  spring-boot.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Spring Boot Application Metrics",
+        "tags": ["spring-boot", "devops", "application"],
+        "style": "dark",
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Application Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "up{job=\"devops-backend\"}",
+                "legendFormat": "{{kubernetes_pod_name}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "green", "value": 1}
+                  ]
+                },
+                "mappings": [
+                  {"options": {"0": {"text": "DOWN"}}, "type": "value"},
+                  {"options": {"1": {"text": "UP"}}, "type": "value"}
+                ]
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "HTTP Requests Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(http_server_requests_seconds_count{job=\"devops-backend\"}[5m])",
+                "legendFormat": "{{kubernetes_pod_name}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "reqps"
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "JVM Memory Usage",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "jvm_memory_used_bytes{job=\"devops-backend\", area=\"heap\"} / jvm_memory_max_bytes{job=\"devops-backend\", area=\"heap\"} * 100",
+                "legendFormat": "{{kubernetes_pod_name}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent"
+              }
+            },
+            "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+          },
+          {
+            "id": 4,
+            "title": "Database Connections",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "hikaricp_connections_active{job=\"devops-backend\"}",
+                "legendFormat": "Active"
+              },
+              {
+                "expr": "hikaricp_connections_idle{job=\"devops-backend\"}",
+                "legendFormat": "Idle"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+          },
+          {
+            "id": 5,
+            "title": "HTTP Request Duration",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.50, rate(http_server_requests_seconds_bucket{job=\"devops-backend\"}[5m]))",
+                "legendFormat": "50th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{job=\"devops-backend\"}[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job=\"devops-backend\"}[5m]))",
+                "legendFormat": "99th percentile"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "s"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+          },
+          {
+            "id": 6,
+            "title": "HTTP Status Codes",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(http_server_requests_seconds_count{job=\"devops-backend\"}[5m])",
+                "legendFormat": "{{status}} - {{method}} {{uri}}"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          },
+          {
+            "id": 7,
+            "title": "JVM Memory Details",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "jvm_memory_used_bytes{job=\"devops-backend\"}",
+                "legendFormat": "{{area}} - {{id}}"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "bytes"
+              }
+            },
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+          },
+          {
+            "id": 8,
+            "title": "Garbage Collection",
+            "type": "timeseries",
+            "targets": [
+              {
+                "expr": "rate(jvm_gc_collection_seconds_count{job=\"devops-backend\"}[5m])",
+                "legendFormat": "{{gc}} collections/sec"
+              },
+              {
+                "expr": "rate(jvm_gc_collection_seconds_sum{job=\"devops-backend\"}[5m])",
+                "legendFormat": "{{gc}} time/sec"
+              }
+            ],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+          },
+          {
+            "id": 9,
+            "title": "Database Query Performance",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "rate(http_server_requests_seconds_count{job=\"devops-backend\", uri=~\"/api.*\"}[5m])",
+                "format": "table",
+                "instant": true
+              }
+            ],
+            "transformations": [
+              {
+                "id": "organize",
+                "options": {
+                  "excludeByName": {
+                    "Time": true,
+                    "__name__": true,
+                    "job": true,
+                    "instance": true
+                  }
+                }
+              }
+            ],
+            "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+          }
+        ],
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "refresh": "30s"
+      }
+    }
