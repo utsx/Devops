@@ -152,7 +152,7 @@ data:
         
         # Проксирование API запросов к backend
         location /api/ {
-            proxy_pass http://10.112.129.5:8080/api/;
+            proxy_pass http://devops-backend-service:8080/api/;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -205,8 +205,6 @@ spec:
         app: devops-frontend
         component: web
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: cl1u415njh4jb79crfvm-uqeg
       containers:
       - name: frontend
         image: utsx/devops-frontend:latest

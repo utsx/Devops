@@ -229,6 +229,15 @@ resource "yandex_vpc_security_group" "k8s_sg" {
     predefined_target = "self_security_group"
   }
 
+  # Трафик между подами и сервисами (согласно документации Yandex Cloud)
+  ingress {
+    description    = "Pod-to-Pod and Services communication"
+    protocol       = "ANY"
+    from_port      = 0
+    to_port        = 65535
+    v4_cidr_blocks = ["10.96.0.0/16", "10.112.0.0/16"]
+  }
+
   # Исходящий трафик
   egress {
     description    = "All outbound traffic"
