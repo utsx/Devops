@@ -12,7 +12,7 @@ env:
   DOCKER_REGISTRY: 'docker.io'
   DOCKER_BUILDKIT: 1
   SONAR_ORGANIZATION: 'utsx'  # Замените на ваш organization key в SonarCloud
-  SONAR_PROJECT_KEY: 'devops-application'
+  SONAR_PROJECT_KEY: 'utsx_Devops'
 
 jobs:
   # Сборка приложений - выполняется первым
@@ -447,7 +447,7 @@ jobs:
         echo "| Quality Gate | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
-        echo "- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=devops-application)" >> $GITHUB_STEP_SUMMARY
+        echo "- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=utsx_Devops)" >> $GITHUB_STEP_SUMMARY
 
   # Сборка и публикация Docker образов
   docker-build-push:

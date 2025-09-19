@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# Скрипт для сборки и публикации Docker образов в облачный реестр
+# Скрипт для сборки и публикации мультиплатформенных Docker образов в облачный реестр
+# Поддерживает сборку для AMD64 и ARM64 платформ
 # Использование: ./build-and-push.sh [version]
 
 set -e
@@ -41,28 +42,11 @@ if ! command -v docker-compose &> /dev/null; then
     exit 1
 fi
 
-# Настройка Docker buildx для мультиплатформенной сборки
-setup_buildx() {
-    log "Настройка Docker buildx для мультиплатформенной сборки..."
-    
-    # Проверяем, доступен ли buildx
-    if ! docker buildx version &> /dev/null; then
-        error "Docker buildx недоступен. Обновите Docker до версии 19.03 или выше"
-        exit 1
-    fi
-    
-    # Создаем новый builder если не существует
-    if ! docker buildx ls | grep -q "multiarch"; then
-        log "Создание нового buildx builder..."
-        docker buildx create --name multiarch --driver docker-container --use
-        docker buildx inspect --bootstrap
-    else
-        log "Используем существующий buildx builder..."
-        docker buildx use multiarch
-    fi
-    
-    success "Docker buildx настроен"
-}
+# Проверка наличия Docker buildx
+if ! docker buildx version &> /dev/null; then
+    error "Docker buildx недоступен. Обновите Docker до версии 19.03 или выше"
+    exit 1
+fi
 
 # Загрузка переменных окружения
 if [ -f .env.prod ]; then
@@ -90,56 +74,84 @@ fi
 log "Версия образов: $VERSION"
 log "Docker Registry: $DOCKER_REGISTRY"
 log "Docker Username: $DOCKER_USERNAME"
+log "Целевая платформа: linux/amd64"
+
+# Настройка Docker buildx для мультиплатформенной сборки
+setup_buildx() {
+    log "Настройка Docker buildx для мультиплатформенной сборки..."
+    
+    # Создаем новый builder если не существует
+    if ! docker buildx ls | grep -q "multiarch-builder"; then
+        log "Создание нового buildx builder для мультиплатформенной сборки..."
+        docker buildx create --name multiarch-builder --driver docker-container --use
+        docker buildx inspect --bootstrap
+    else
+        log "Используем существующий buildx builder..."
+        docker buildx use multiarch-builder
+    fi
+    
+    success "Docker buildx настроен для мультиплатформенной сборки"
+}
 
 # Проверка авторизации в Docker Hub
-log "Проверка авторизации в Docker Registry..."
-if ! docker info | grep -q "Username"; then
-    warning "Не авторизованы в Docker Registry. Выполните: docker login"
-    read -p "Хотите авторизоваться сейчас? (y/n): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker login $DOCKER_REGISTRY
-    else
-        error "Авторизация необходима для публикации образов"
-        exit 1
+check_docker_auth() {
+    log "Проверка авторизации в Docker Registry..."
+    if ! docker info | grep -q "Username"; then
+        warning "Не авторизованы в Docker Registry. Выполните: docker login"
+        read -p "Хотите авторизоваться сейчас? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            docker login $DOCKER_REGISTRY
+        else
+            error "Авторизация необходима для публикации образов"
+            exit 1
+        fi
     fi
-fi
+}
+
+# Сборка образа для AMD64 платформы
+build_amd64_image() {
+    local service=$1
+    local context=$2
+    
+    log "Сборка образа для $service (AMD64)..."
+    
+    # Определяем платформу для сборки
+    PLATFORM="linux/amd64"
+    
+    # Сборка и публикация образа
+    docker buildx build \
+        --platform $PLATFORM \
+        --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-$service:$VERSION \
+        --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-$service:latest \
+        --push \
+        $context
+    
+    success "Образ $service успешно собран для платформы: $PLATFORM"
+}
 
 # Настройка buildx
 setup_buildx
 
-# Определяем платформы для сборки
-PLATFORMS="linux/amd64,linux/arm64"
-log "Целевые платформы: $PLATFORMS"
+# Проверка авторизации
+check_docker_auth
 
-# Сборка и публикация Backend образа
-log "Сборка и публикация Backend образа для мультиплатформ..."
-docker buildx build \
-    --platform $PLATFORMS \
-    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION \
-    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest \
-    --push \
-    ./backend
+# Сборка Backend образа
+build_amd64_image "backend" "./backend"
 
-# Сборка и публикация Frontend образа
-log "Сборка и публикация Frontend образа для мультиплатформ..."
-docker buildx build \
-    --platform $PLATFORMS \
-    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION \
-    --tag $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest \
-    --push \
-    ./frontend
+# Сборка Frontend образа
+build_amd64_image "frontend" "./frontend"
 
 # Вывод информации об образах
 log "Информация о созданных образах:"
 echo "Backend:"
-echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION"
-echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest"
+echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:$VERSION (linux/amd64)"
+echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-backend:latest (linux/amd64)"
 echo "Frontend:"
-echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION"
-echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest"
+echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:$VERSION (linux/amd64)"
+echo "  - $DOCKER_REGISTRY/$DOCKER_USERNAME/devops-frontend:latest (linux/amd64)"
 
-success "Все образы успешно собраны и опубликованы!"
+success "Все образы успешно собраны и опубликованы для AMD64 платформы!"
 
 # Очистка buildx кэша (опционально)
 read -p "Очистить buildx кэш для экономии места? (y/n): " -n 1 -r
@@ -150,5 +162,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     success "Buildx кэш очищен"
 fi
 
-log "Для развертывания используйте:"
+log "Для локального развертывания используйте:"
+echo "  docker-compose up -d"
+log "Для развертывания в облаке используйте:"
 echo "  docker-compose -f docker-compose.prod.yml --env-file .env.prod up -d"
