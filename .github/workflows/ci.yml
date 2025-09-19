@@ -411,7 +411,7 @@ jobs:
     - name: Build backend for analysis
       run: |
         cd backend
-        ./mvnw clean compile test-compile
+        ./mvnw clean compile test-compile dependency:copy-dependencies
 
     - name: Generate frontend coverage
       run: |
