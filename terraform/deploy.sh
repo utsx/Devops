@@ -125,6 +125,10 @@ echo "📊 Развертывание системы мониторинга..."
 echo "🚀 Применяем манифесты системы мониторинга..."
 kubectl apply -f monitoring-manifests.yaml
 
+# Развертывание расширенных дашбордов Grafana
+echo "📊 Развертывание расширенных дашбордов Grafana..."
+kubectl apply -f grafana-dashboards-extended.yaml
+
 # Ожидание готовности Prometheus
 echo "⏳ Ожидание готовности Prometheus..."
 kubectl wait --for=condition=ready pod -l app=prometheus -n monitoring --timeout=300s
@@ -248,8 +252,52 @@ if [ ! -z "$PROMETHEUS_POD" ]; then
     fi
 fi
 
+# Генерация тестового трафика для метрик
 echo ""
-echo "📋 Полезные команды:"
+echo "🚀 Генерация тестового трафика для создания HTTP метрик..."
+
+if [ "$EXTERNAL_IP" != "" ] && [ "$NODE_PORT" != "" ]; then
+    echo "  - Делаем запросы к API endpoints..."
+    
+    # Проверяем доступность API
+    if curl -s -o /dev/null -w "%{http_code}" http://$EXTERNAL_IP:$NODE_PORT/api/v1/users | grep -q "200"; then
+        echo "✅ API доступно, генерируем трафик..."
+        
+        # Генерируем трафик к разным endpoints
+        for i in {1..10}; do
+            curl -s http://$EXTERNAL_IP:$NODE_PORT/api/v1/users > /dev/null 2>&1 || true
+            curl -s http://$EXTERNAL_IP:$NODE_PORT/api/v1/orders > /dev/null 2>&1 || true
+            curl -s http://$EXTERNAL_IP:$NODE_PORT/actuator/health > /dev/null 2>&1 || true
+            sleep 0.5
+        done
+        
+        echo "✅ Тестовый трафик сгенерирован (30 запросов)"
+        echo "  - /api/v1/users: 10 запросов"
+        echo "  - /api/v1/orders: 10 запросов"
+        echo "  - /actuator/health: 10 запросов"
+        
+        # Проверяем что метрики появились
+        BACKEND_POD=$(kubectl get pods -n devops-app -l app=devops-backend -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+        if [ ! -z "$BACKEND_POD" ]; then
+            echo "  - Проверяем HTTP метрики..."
+            if kubectl exec -n devops-app $BACKEND_POD -- curl -s http://localhost:8080/actuator/prometheus | grep -q "http_server_requests_seconds_count.*api"; then
+                echo "✅ HTTP метрики для API endpoints созданы!"
+            else
+                echo "⚠️  HTTP метрики пока не видны (может потребоваться время)"
+            fi
+        fi
+    else
+        echo "⚠️  API пока недоступно для генерации трафика"
+        echo "  Вы можете сгенерировать трафик позже командами:"
+        echo "  curl http://$EXTERNAL_IP:$NODE_PORT/api/v1/users"
+        echo "  curl http://$EXTERNAL_IP:$NODE_PORT/api/v1/orders"
+    fi
+else
+    echo "⚠️  Не удалось получить адрес для генерации трафика"
+fi
+
+echo ""
+echo "� Полезные команды:"
 echo "=== ПРИЛОЖЕНИЕ ==="
 echo "  kubectl get pods -n devops-app                    # Статус подов приложения"
 echo "  kubectl get services -n devops-app                # Статус сервисов приложения"
@@ -261,6 +309,23 @@ echo "  kubectl get pods -n monitoring                    # Статус под�
 echo "  kubectl logs -n monitoring deployment/prometheus  # Логи Prometheus"
 echo "  kubectl logs -n monitoring deployment/grafana     # Логи Grafana"
 echo "  ./validate-metrics.sh                             # Полная проверка метрик"
+echo ""
+echo "=== ГЕНЕРАЦИЯ ТРАФИКА ==="
+if [ "$EXTERNAL_IP" != "" ] && [ "$NODE_PORT" != "" ]; then
+    echo "  # Генерация трафика для метрик:"
+    echo "  curl http://$EXTERNAL_IP:$NODE_PORT/api/v1/users"
+    echo "  curl http://$EXTERNAL_IP:$NODE_PORT/api/v1/orders"
+    echo "  curl http://$EXTERNAL_IP:$NODE_PORT/actuator/health"
+    echo ""
+    echo "  # Массовая генерация трафика:"
+    echo "  for i in {1..20}; do curl -s http://$EXTERNAL_IP:$NODE_PORT/api/v1/users > /dev/null; done"
+fi
+echo ""
+echo "=== ДАШБОРДЫ GRAFANA ==="
+echo "  После входа в Grafana найдите дашборды:"
+echo "  - Pod-Level Detailed Monitoring"
+echo "  - Request Tracing and Analysis"
+echo "  - Infrastructure Deep Dive"
 echo ""
 echo "🔧 Для удаления ресурсов выполните:"
 echo "  terraform destroy"
