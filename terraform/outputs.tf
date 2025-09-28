@@ -126,8 +126,8 @@ output "useful_commands" {
   }
 }
 
-# URL приложения (будет доступен после развертывания LoadBalancer)
+# URL приложения (доступен через NodePort)
 output "application_url" {
-  description = "URL для доступа к приложению (будет доступен после создания LoadBalancer)"
-  value = "Выполните: kubectl get services -n devops-app devops-frontend-service для получения внешнего IP"
+  description = "URL для доступа к приложению через NodePort"
+  value = "Выполните: kubectl get nodes -o wide && kubectl get services -n devops-app devops-frontend-service для получения внешнего IP ноды и NodePort"
 }

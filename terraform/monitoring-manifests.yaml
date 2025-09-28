@@ -99,18 +99,21 @@ data:
               names:
                 - devops-app
         relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
           - source_labels: [__meta_kubernetes_pod_label_app]
             action: keep
             regex: devops-backend
-          - source_labels: [__address__]
-            action: replace
-            regex: ([^:]+)(?::\d+)?
-            replacement: $1:8080
-            target_label: __address__
-          - source_labels: []
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
             action: replace
             target_label: __metrics_path__
-            replacement: /actuator/prometheus
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
           - source_labels: [__meta_kubernetes_namespace]
@@ -227,6 +230,8 @@ metadata:
     component: server
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -237,6 +242,12 @@ spec:
         component: server
     spec:
       serviceAccountName: prometheus
+      securityContext:
+        fsGroup: 65534
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroupChangePolicy: "OnRootMismatch"
       containers:
         - name: prometheus
           image: prom/prometheus:v2.48.0
@@ -248,6 +259,8 @@ spec:
             - '--storage.tsdb.retention.time=15d'
             - '--web.enable-lifecycle'
             - '--web.enable-admin-api'
+            - '--query.max-concurrency=20'
+            - '--query.timeout=2m'
           ports:
             - containerPort: 9090
               name: web
@@ -263,18 +276,31 @@ spec:
               mountPath: /etc/prometheus/
             - name: prometheus-storage
               mountPath: /prometheus/
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
             httpGet:
               path: /-/healthy
               port: 9090
             initialDelaySeconds: 30
             periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /-/ready
               port: 9090
             initialDelaySeconds: 30
             periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
       volumes:
         - name: prometheus-config
           configMap:
@@ -366,12 +392,11 @@ metadata:
 data:
   devops-app-dashboard.json: |
     {
-      "dashboard": {
-        "id": null,
-        "title": "DevOps Application Monitoring",
-        "tags": ["devops", "spring-boot"],
-        "timezone": "browser",
-        "panels": [
+      "id": null,
+      "title": "DevOps Application Monitoring",
+      "tags": ["devops", "spring-boot"],
+      "timezone": "browser",
+      "panels": [
           {
             "id": 1,
             "title": "HTTP Requests Rate",
@@ -469,17 +494,15 @@ data:
           "to": "now"
         },
         "refresh": "5s"
-      }
     }
 
   kubernetes-dashboard.json: |
     {
-      "dashboard": {
-        "id": null,
-        "title": "Kubernetes Infrastructure Monitoring",
-        "tags": ["kubernetes", "infrastructure"],
-        "timezone": "browser",
-        "panels": [
+      "id": null,
+      "title": "Kubernetes Infrastructure Monitoring",
+      "tags": ["kubernetes", "infrastructure"],
+      "timezone": "browser",
+      "panels": [
           {
             "id": 1,
             "title": "Pod Status",
@@ -573,7 +596,6 @@ data:
           "to": "now"
         },
         "refresh": "5s"
-      }
     }
 
 ---
@@ -621,6 +643,8 @@ metadata:
     component: server
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: grafana
@@ -630,6 +654,12 @@ spec:
         app: grafana
         component: server
     spec:
+      securityContext:
+        fsGroup: 472
+        runAsGroup: 472
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroupChangePolicy: "OnRootMismatch"
       containers:
         - name: grafana
           image: grafana/grafana:10.2.0
@@ -663,18 +693,31 @@ spec:
               mountPath: /var/lib/grafana/dashboards/
             - name: grafana-storage
               mountPath: /var/lib/grafana
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 472
+            runAsGroup: 472
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
       volumes:
         - name: grafana-config
           configMap:
@@ -719,24 +762,12 @@ spec:
   type: ClusterIP
 
 ---
-# Service для внешнего доступа к Grafana
+# Service для внешнего доступа к Grafana через NodePort
 apiVersion: v1
 kind: Service
 metadata:
   name: grafana-external
   namespace: monitoring
-  annotations:
-    yandex.cloud/load-balancer-type: external
-    yandex.cloud/target-group-spec: |
-      - name: grafana
-        healthcheck:
-          type: http
-          port: 3000
-          path: /api/health
-          interval: 10s
-          timeout: 5s
-          healthy_threshold: 2
-          unhealthy_threshold: 2
 spec:
   type: NodePort
   ports:
