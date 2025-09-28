@@ -253,24 +253,12 @@ spec:
       restartPolicy: Always
 
 ---
-# Service для Frontend с LoadBalancer
+# Service для Frontend с NodePort
 apiVersion: v1
 kind: Service
 metadata:
   name: devops-frontend-service
   namespace: devops-app
-  annotations:
-    yandex.cloud/load-balancer-type: external
-    yandex.cloud/target-group-spec: |
-      - name: default
-        healthcheck:
-          type: http
-          port: 80
-          path: /health
-          interval: 10s
-          timeout: 5s
-          healthy_threshold: 2
-          unhealthy_threshold: 2
 spec:
   type: NodePort
   ports:

@@ -8,7 +8,7 @@
 - **Frontend**: React приложение из образа `utsx/devops-frontend:latest`
 - **Backend**: Spring Boot приложение из образа `utsx/devops-backend:latest`
 - **PostgreSQL**: База данных для backend
-- **LoadBalancer** для внешнего доступа
+- **NodePort** для внешнего доступа
 
 ## Быстрый старт
 
@@ -68,35 +68,35 @@ kubectl get services -n devops-app
 ### 4. Получите URL приложения
 
 ```bash
-# Проверить статус LoadBalancer
+# Проверить статус NodePort сервиса
 kubectl get services -n devops-app devops-frontend-service
 
-# Ждать назначения внешнего IP (может занять несколько минут)
-kubectl get services -n devops-app devops-frontend-service -w
+# Получить NodePort
+NODE_PORT=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
 
-# Получить внешний IP
-EXTERNAL_IP=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "Frontend доступен по адресу: http://$EXTERNAL_IP"
+# Получить внешний IP ноды
+EXTERNAL_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+echo "Frontend доступен по адресу: http://$EXTERNAL_IP:$NODE_PORT"
 
 # Проверить доступность frontend
-curl -I http://$EXTERNAL_IP
+curl -I http://$EXTERNAL_IP:$NODE_PORT
 
 # Проверить API через frontend
-curl http://$EXTERNAL_IP/api/actuator/health
+curl http://$EXTERNAL_IP:$NODE_PORT/api/actuator/health
 ```
 
-Найдите EXTERNAL-IP и откройте в браузере: `http://EXTERNAL-IP`
+Откройте в браузере: `http://EXTERNAL-IP:NODE-PORT`
 
 **Проверка API:**
-- Frontend: `http://EXTERNAL-IP`
-- API через frontend: `http://EXTERNAL-IP/api/actuator/health`
+- Frontend: `http://EXTERNAL-IP:NODE-PORT`
+- API через frontend: `http://EXTERNAL-IP:NODE-PORT/api/actuator/health`
 
 ## Архитектура
 
 ```
 Internet
     ↓
-LoadBalancer (Frontend Service)
+NodePort (Frontend Service)
     ↓
 Frontend Pods (utsx/devops-frontend:latest)
     ↓ /api/*
@@ -113,8 +113,8 @@ PostgreSQL Pod
 - **Сеть**: Автоматически созданная VPC
 
 ### Приложения
-- **Frontend**: 2 реплики, порт 80, LoadBalancer
-- **Backend**: 2 реплики, порт 8080, ClusterIP
+- **Frontend**: 1 реплика, порт 80, NodePort (32757)
+- **Backend**: 1 реплика, порт 8080, ClusterIP
 - **Namespace**: devops-app
 
 ## Полезные команды
@@ -136,7 +136,29 @@ kubectl set image deployment/devops-frontend frontend=utsx/devops-frontend:v2.0 
 
 # Перезапуск
 kubectl rollout restart deployment/devops-frontend -n devops-app
+
+# Интерактивное обновление образов (рекомендуется)
+./update-images.sh
 ```
+
+## Обновление образов
+
+После загрузки новых образов в Docker Hub используйте:
+
+```bash
+# Интерактивный скрипт обновления
+./update-images.sh
+
+# Или вручную:
+kubectl set image deployment/devops-backend backend=utsx/devops-backend:latest -n devops-app
+kubectl set image deployment/devops-frontend frontend=utsx/devops-frontend:latest -n devops-app
+
+# Принудительный перезапуск (если тег не изменился)
+kubectl rollout restart deployment/devops-backend -n devops-app
+kubectl rollout restart deployment/devops-frontend -n devops-app
+```
+
+Подробное руководство: [UPDATE_IMAGES.md](UPDATE_IMAGES.md)
 
 ## Получение учетных данных Yandex Cloud
 
@@ -160,6 +182,8 @@ terraform/
 ├── terraform.tfvars     # Ваши настройки
 ├── k8s-manifests.yaml   # Манифесты приложений
 ├── deploy.sh            # Скрипт развертывания
+├── update-images.sh     # Скрипт обновления образов
+├── UPDATE_IMAGES.md     # Руководство по обновлению образов
 └── README.md            # Эта документация
 ```
 
@@ -215,32 +239,30 @@ kubectl get services -n devops-app
 kubectl run test-pod --image=postgres:15-alpine -n devops-app --rm -it -- pg_isready -h postgres -p 5432
 ```
 
-### LoadBalancer не получает IP
+### NodePort недоступен
 ```bash
-# Проверить статус LoadBalancer
+# Проверить статус NodePort сервиса
 kubectl describe service devops-frontend-service -n devops-app
 
-# Проверить события
-kubectl get events -n devops-app | grep LoadBalancer
+# Проверить что NodePort настроен
+kubectl get service devops-frontend-service -n devops-app -o yaml
 
-# Проверить квоты Yandex Cloud
-yc compute address list
+# Проверить внешние IP нод
+kubectl get nodes -o wide
 
-# Проверить лимиты на внешние IP
-yc resource-manager quota list --folder-id <your-folder-id>
-
-# Ждать назначения IP (может занять до 5 минут)
-kubectl get services -n devops-app devops-frontend-service -w
+# Проверить группы безопасности (порт должен быть открыт)
+yc compute instance list
 ```
 
 ### Frontend недоступен из интернета
 ```bash
-# Получить внешний IP
-EXTERNAL_IP=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-echo "External IP: $EXTERNAL_IP"
+# Получить внешний IP ноды и NodePort
+EXTERNAL_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+NODE_PORT=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}')
+echo "External IP: $EXTERNAL_IP:$NODE_PORT"
 
 # Проверить доступность
-curl -v http://$EXTERNAL_IP
+curl -v http://$EXTERNAL_IP:$NODE_PORT
 
 # Проверить статус подов frontend
 kubectl get pods -l app=devops-frontend -n devops-app
@@ -280,6 +302,70 @@ terraform destroy -auto-approve
 
 Примерно 5000 ₽/месяц для тестового окружения (2 узла standard-v3).
 
+## Мониторинг
+
+Система мониторинга включает Prometheus и Grafana с автоматическими исправлениями прав доступа.
+
+### Развертывание мониторинга
+
+```bash
+# Развертывание системы мониторинга
+./deploy-monitoring.sh
+```
+
+Скрипт автоматически:
+- Применяет манифесты мониторинга
+- Проверяет корректность запуска Prometheus
+- Исправляет проблемы с правами доступа при необходимости
+- Проверяет доступность API Prometheus
+
+### Доступ к сервисам мониторинга
+
+```bash
+# Grafana (внешний доступ через NodePort)
+kubectl get svc grafana-external -n monitoring
+
+# Prometheus (внутренний доступ)
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+
+# Учетные данные Grafana
+# Пользователь: admin
+# Пароль: admin123
+```
+
+### Исправление проблем Prometheus
+
+Если Prometheus выдает ошибки прав доступа:
+
+```bash
+# Автоматическое исправление
+./fix-prometheus-permissions.sh
+
+# Или проверка логов
+kubectl logs -n monitoring deployment/prometheus
+```
+
+**Типичные ошибки и решения:**
+- `permission denied` при создании `/prometheus/queries.active` - исправляется автоматически через SecurityContext и initContainer
+- `panic: Unable to create mmap-ed active query log` - решается перезапуском с правильными правами
+
+### Дашборды
+
+Доступные дашборды в Grafana:
+- **DevOps Application Monitoring** - метрики приложения (HTTP запросы, время ответа, JVM, БД)
+- **Kubernetes Infrastructure Monitoring** - метрики инфраструктуры (CPU, память, сеть подов)
+
+### Файлы мониторинга
+
+```
+terraform/
+├── monitoring-manifests.yaml        # Манифесты Prometheus и Grafana
+├── deploy-monitoring.sh            # Скрипт развертывания с проверками
+├── fix-prometheus-permissions.sh   # Исправление прав доступа
+├── PROMETHEUS_PERMISSIONS_FIX.md   # Документация по исправлениям
+└── test-monitoring.sh              # Тестирование мониторинга
+```
+
 ## Что упрощено
 
 По сравнению с полной конфигурацией убрано:
@@ -288,6 +374,5 @@ terraform destroy -auto-approve
 - HPA (автомасштабирование)
 - NetworkPolicy
 - Ingress контроллер
-- Мониторинг и метрики
 
 Приложения используют встроенную H2 базу данных для простоты.
