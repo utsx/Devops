@@ -122,6 +122,24 @@ data:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
+      
+      # cAdvisor для метрик контейнеров
+      - job_name: 'kubernetes-cadvisor'
+        kubernetes_sd_configs:
+          - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
 
   rules.yml: |
     groups:
@@ -486,6 +504,52 @@ data:
               "w": 12,
               "x": 12,
               "y": 8
+            }
+          },
+          {
+            "id": 5,
+            "title": "CPU Usage by Pod",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(container_cpu_usage_seconds_total{namespace=\"devops-app\", pod=~\"devops-backend.*\", container!=\"POD\", container!=\"\"}[5m]) * 1000",
+                "legendFormat": "{{pod}} - CPU millicores"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "CPU (millicores)",
+                "min": 0
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 16
+            }
+          },
+          {
+            "id": 6,
+            "title": "Pod Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{namespace=\"devops-app\", pod=~\"devops-backend.*\", container!=\"POD\", container!=\"\"} / 1024 / 1024",
+                "legendFormat": "{{pod}} - Memory MB"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "Memory (MB)",
+                "min": 0
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 16
             }
           }
         ],

@@ -548,3 +548,338 @@ data:
         "refresh": "30s"
       }
     }
+
+  cpu-autoscaling-dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "CPU Load & Autoscaling Monitoring",
+        "tags": ["cpu", "autoscaling", "hpa", "kubernetes"],
+        "timezone": "browser",
+        "templating": {
+          "list": [
+            {
+              "name": "namespace",
+              "type": "query",
+              "query": "label_values(kube_pod_info, namespace)",
+              "current": {
+                "value": "devops-app"
+              }
+            }
+          ]
+        },
+        "panels": [
+          {
+            "id": 1,
+            "title": "Pod CPU Usage (Real-time)",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"devops-backend.*\", container!=\"POD\", container!=\"\"}[5m])) by (pod) * 1000",
+                "legendFormat": "{{pod}} - CPU millicores"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "CPU (millicores)",
+                "min": 0
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 0
+            },
+            "alert": {
+              "conditions": [
+                {
+                  "evaluator": {
+                    "params": [400],
+                    "type": "gt"
+                  },
+                  "operator": {
+                    "type": "and"
+                  },
+                  "query": {
+                    "params": ["A", "5m", "now"]
+                  },
+                  "reducer": {
+                    "params": [],
+                    "type": "avg"
+                  },
+                  "type": "query"
+                }
+              ],
+              "executionErrorState": "alerting",
+              "for": "2m",
+              "frequency": "10s",
+              "handler": 1,
+              "name": "High CPU Usage Alert",
+              "noDataState": "no_data",
+              "notifications": []
+            }
+          },
+          {
+            "id": 2,
+            "title": "HPA CPU Utilization vs Target",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "kube_horizontalpodautoscaler_status_current_metrics{namespace=\"$namespace\", metric_name=\"cpu\"}",
+                "legendFormat": "Current CPU %"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_target_metric{namespace=\"$namespace\", metric_name=\"cpu\"}",
+                "legendFormat": "Target CPU %"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "CPU Utilization %",
+                "min": 0,
+                "max": 100
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 0
+            }
+          },
+          {
+            "id": 3,
+            "title": "Pod Replicas Count",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "kube_deployment_status_replicas{namespace=\"$namespace\", deployment=\"devops-backend\"}",
+                "legendFormat": "Current Replicas"
+              },
+              {
+                "expr": "kube_deployment_spec_replicas{namespace=\"$namespace\", deployment=\"devops-backend\"}",
+                "legendFormat": "Desired Replicas"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"$namespace\"}",
+                "legendFormat": "Min Replicas"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"$namespace\"}",
+                "legendFormat": "Max Replicas"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "Replicas Count",
+                "min": 0
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 24,
+              "x": 0,
+              "y": 8
+            }
+          },
+          {
+            "id": 4,
+            "title": "Memory Usage by Pod",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(container_memory_usage_bytes{namespace=\"$namespace\", pod=~\"devops-backend.*\", container!=\"POD\", container!=\"\"}) by (pod) / 1024 / 1024",
+                "legendFormat": "{{pod}} - Memory MB"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "Memory (MB)",
+                "min": 0
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 16
+            }
+          },
+          {
+            "id": 5,
+            "title": "HPA Memory Utilization vs Target",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "kube_horizontalpodautoscaler_status_current_metrics{namespace=\"$namespace\", metric_name=\"memory\"}",
+                "legendFormat": "Current Memory %"
+              },
+              {
+                "expr": "kube_horizontalpodautoscaler_spec_target_metric{namespace=\"$namespace\", metric_name=\"memory\"}",
+                "legendFormat": "Target Memory %"
+              }
+            ],
+            "yAxes": [
+              {
+                "label": "Memory Utilization %",
+                "min": 0,
+                "max": 100
+              }
+            ],
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 16
+            }
+          },
+          {
+            "id": 6,
+            "title": "Current CPU Usage",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "avg(rate(container_cpu_usage_seconds_total{namespace=\"$namespace\", pod=~\"devops-backend.*\", container!=\"POD\", container!=\"\"}[5m])) * 1000",
+                "legendFormat": "Avg CPU"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "decimals": 0,
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 200
+                    },
+                    {
+                      "color": "red",
+                      "value": 400
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 4,
+              "w": 6,
+              "x": 0,
+              "y": 24
+            }
+          },
+          {
+            "id": 7,
+            "title": "Active Pods",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "count(kube_pod_info{namespace=\"$namespace\", pod=~\"devops-backend.*\"})",
+                "legendFormat": "Active Pods"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "decimals": 0,
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 4,
+              "w": 6,
+              "x": 6,
+              "y": 24
+            }
+          },
+          {
+            "id": 8,
+            "title": "HPA Status",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "kube_horizontalpodautoscaler_status_condition{namespace=\"$namespace\", condition=\"ScalingActive\", status=\"true\"}",
+                "legendFormat": "Scaling Active"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "decimals": 0,
+                "mappings": [
+                  {
+                    "options": {
+                      "0": {
+                        "text": "Inactive"
+                      },
+                      "1": {
+                        "text": "Active"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ],
+                "thresholds": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            },
+            "gridPos": {
+              "h": 4,
+              "w": 6,
+              "x": 12,
+              "y": 24
+            }
+          },
+          {
+            "id": 9,
+            "title": "Scaling Events",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "increase(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"$namespace\"}[1h])",
+                "legendFormat": "Scaling Events/h"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "unit": "short",
+                "decimals": 0
+              }
+            },
+            "gridPos": {
+              "h": 4,
+              "w": 6,
+              "x": 18,
+              "y": 24
+            }
+          }
+        ],
+        "time": {
+          "from": "now-30m",
+          "to": "now"
+        },
+        "refresh": "5s"
+      }
+    }

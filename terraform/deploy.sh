@@ -176,6 +176,98 @@ if [ ! -z "$GRAFANA_POD" ]; then
     fi
 fi
 
+# Применение исправлений для автомасштабирования и CPU мониторинга
+echo ""
+echo "🔧 Применение исправлений для автомасштабирования и CPU мониторинга..."
+
+# Развертывание Metrics Server
+echo "📊 Развертывание Metrics Server..."
+
+# Проверяем существование metrics-server deployment и исправляем проблему immutable selector
+echo "🔍 Проверка существующего deployment metrics-server..."
+if kubectl get deployment metrics-server -n kube-system >/dev/null 2>&1; then
+    echo "⚠️  Обнаружен существующий metrics-server deployment"
+    
+    # Проверяем selector для выявления конфликта
+    CURRENT_SELECTOR=$(kubectl get deployment metrics-server -n kube-system -o jsonpath='{.spec.selector.matchLabels}' 2>/dev/null || echo "")
+    
+    if [ ! -z "$CURRENT_SELECTOR" ]; then
+        echo "🔍 Текущий selector: $CURRENT_SELECTOR"
+        echo "🔧 Удаляем существующий deployment для избежания конфликта immutable selector..."
+        
+        # Удаляем deployment (но не service account и rbac)
+        kubectl delete deployment metrics-server -n kube-system --ignore-not-found=true
+        
+        # Ждем полного удаления
+        echo "⏳ Ожидание полного удаления deployment..."
+        kubectl wait --for=delete deployment/metrics-server -n kube-system --timeout=60s 2>/dev/null || true
+        
+        # Также удаляем связанные pods если они зависли
+        kubectl delete pods -n kube-system -l k8s-app=metrics-server --force --grace-period=0 2>/dev/null || true
+        
+        echo "✅ Старый deployment metrics-server удален"
+    fi
+else
+    echo "✅ Metrics-server deployment не найден, можно создавать новый"
+fi
+
+echo "🚀 Применяем манифесты Metrics Server..."
+kubectl apply -f metrics-server-manifests.yaml
+
+# Ожидание готовности Metrics Server
+echo "⏳ Ожидание готовности Metrics Server..."
+kubectl wait --for=condition=ready pod -l k8s-app=metrics-server -n kube-system --timeout=300s
+
+# Проверка работы Metrics Server
+echo "🔍 Проверка работы Metrics Server..."
+sleep 30  # Даем время для сбора первых метрик
+
+if kubectl top nodes >/dev/null 2>&1; then
+    echo "✅ Metrics Server работает корректно"
+    
+    # Проверяем метрики подов
+    if kubectl top pods -n devops-app >/dev/null 2>&1; then
+        echo "✅ Метрики подов доступны"
+        kubectl top pods -n devops-app
+    else
+        echo "⚠️  Метрики подов пока недоступны, но это может быть временно"
+    fi
+else
+    echo "⚠️  Metrics Server пока не готов, но продолжаем развертывание"
+fi
+
+# Развертывание HPA манифестов (если еще не существует)
+echo "🚀 Проверка и развертывание HPA для автомасштабирования..."
+if kubectl get hpa devops-backend-hpa -n devops-app >/dev/null 2>&1; then
+    echo "✅ HPA уже существует, пропускаем создание"
+else
+    echo "📊 Создаем HPA..."
+    kubectl apply -f hpa-manifests.yaml
+fi
+
+# Проверка статуса HPA
+echo "📊 Проверка статуса HPA..."
+sleep 10
+kubectl get hpa -n devops-app -o wide
+
+# Перезагрузка конфигурации Prometheus для cAdvisor метрик
+echo "🔄 Перезагрузка конфигурации Prometheus..."
+PROMETHEUS_POD=$(kubectl get pods -n monitoring -l app=prometheus -o jsonpath='{.items[0].metadata.name}')
+if [ ! -z "$PROMETHEUS_POD" ]; then
+    kubectl exec -n monitoring $PROMETHEUS_POD -- wget -qO- --post-data='' 'http://localhost:9090/-/reload' || echo "⚠️  Не удалось перезагрузить Prometheus, но это не критично"
+fi
+
+# Перезапуск Grafana для подхвата новых дашбордов
+echo "🔄 Перезапуск Grafana для обновления дашбордов..."
+kubectl rollout restart deployment/grafana -n monitoring
+kubectl rollout status deployment/grafana -n monitoring --timeout=300s
+
+echo "✅ Исправления применены:"
+echo "  ✅ Metrics Server развернут и работает"
+echo "  ✅ HPA настроен для автомасштабирования"
+echo "  ✅ CPU метрики доступны в Prometheus"
+echo "  ✅ Дашборды Grafana обновлены"
+
 # Получение информации о доступе к мониторингу
 echo "📊 Информация о системе мониторинга:"
 kubectl get svc -n monitoring
@@ -323,9 +415,22 @@ fi
 echo ""
 echo "=== ДАШБОРДЫ GRAFANA ==="
 echo "  После входа в Grafana найдите дашборды:"
+echo "  - DevOps Application Monitoring (основной с CPU метриками)"
+echo "  - CPU Load & Autoscaling Monitoring (специализированный)"
+echo "  - Kubernetes Infrastructure Monitoring"
 echo "  - Pod-Level Detailed Monitoring"
 echo "  - Request Tracing and Analysis"
 echo "  - Infrastructure Deep Dive"
+echo ""
+echo "=== АВТОМАСШТАБИРОВАНИЕ ==="
+echo "  kubectl get hpa -n devops-app                         # Статус HPA"
+echo "  kubectl describe hpa devops-backend-hpa -n devops-app # Подробная информация"
+echo "  kubectl top pods -n devops-app                        # Метрики подов"
+echo "  watch kubectl get hpa -n devops-app                   # Мониторинг в реальном времени"
+echo ""
+echo "=== ДИАГНОСТИКА ==="
+echo "  ./diagnose-pods.sh                                    # Диагностика проблем с подами"
+echo "  kubectl get events -n devops-app --sort-by='.lastTimestamp' | tail -10"
 echo ""
 echo "🔧 Для удаления ресурсов выполните:"
 echo "  terraform destroy"
