@@ -261,3 +261,75 @@ provider "kubernetes" {
     ]
   }
 }
+
+# Применение манифестов Kubernetes через kubectl
+resource "null_resource" "apply_k8s_manifests" {
+  depends_on = [yandex_kubernetes_cluster.k8s_cluster, yandex_kubernetes_node_group.k8s_node_group]
+
+  triggers = {
+    cluster_id = yandex_kubernetes_cluster.k8s_cluster.id
+    manifests_hash = filemd5("${path.module}/k8s-manifests.yaml")
+    hpa_hash = filemd5("${path.module}/hpa-manifests.yaml")
+    metrics_hash = filemd5("${path.module}/metrics-server-manifests.yaml")
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Получение конфигурации кластера
+      yc managed-kubernetes cluster get-credentials ${yandex_kubernetes_cluster.k8s_cluster.id} --external --force
+      
+      # Применение metrics-server (должен быть первым)
+      kubectl apply -f ${path.module}/metrics-server-manifests.yaml
+      
+      # Ожидание готовности metrics-server
+      kubectl wait --for=condition=available --timeout=300s deployment/metrics-server -n kube-system
+      
+      # Применение основных манифестов приложения
+      kubectl apply -f ${path.module}/k8s-manifests.yaml
+      
+      # Ожидание готовности приложения
+      kubectl wait --for=condition=available --timeout=300s deployment/devops-backend -n devops-app
+      
+      # Применение HPA манифестов
+      kubectl apply -f ${path.module}/hpa-manifests.yaml
+      
+      # Проверка статуса HPA
+      kubectl get hpa -n devops-app
+    EOT
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      # Получение конфигурации кластера для удаления ресурсов
+      yc managed-kubernetes cluster get-credentials ${self.triggers.cluster_id} --external --force || true
+      
+      # Удаление HPA
+      kubectl delete -f ${path.module}/hpa-manifests.yaml --ignore-not-found=true || true
+      
+      # Удаление основных манифестов
+      kubectl delete -f ${path.module}/k8s-manifests.yaml --ignore-not-found=true || true
+      
+      # Удаление metrics-server
+      kubectl delete -f ${path.module}/metrics-server-manifests.yaml --ignore-not-found=true || true
+    EOT
+  }
+}
+
+# Вывод информации о HPA
+resource "null_resource" "hpa_status" {
+  depends_on = [null_resource.apply_k8s_manifests]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "=== HPA Status ==="
+      kubectl get hpa -n devops-app -o wide
+      echo ""
+      echo "=== Metrics Server Status ==="
+      kubectl get deployment metrics-server -n kube-system
+      echo ""
+      echo "=== Backend Deployment Status ==="
+      kubectl get deployment devops-backend -n devops-app
+    EOT
+  }
+}
