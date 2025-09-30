@@ -21,7 +21,7 @@ on:
       cluster_name:
         description: 'Имя Kubernetes кластера'
         required: true
-        default: 'devops-k8s-cluster-staging'
+        default: 'devops-k8s-cluster'
         type: string
 
 env:
@@ -62,7 +62,7 @@ jobs:
           CLUSTER_NAME="${{ github.event.inputs.cluster_name }}"
         else
           ENVIRONMENT="staging"
-          CLUSTER_NAME="devops-k8s-cluster-staging"
+          CLUSTER_NAME="devops-k8s-cluster"
         fi
         echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
         echo "cluster-name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
