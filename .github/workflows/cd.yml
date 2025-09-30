@@ -82,8 +82,8 @@ jobs:
         fi
         
         # Yandex Container Registry access (service account key)
-        if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
-          MISSING_SECRETS="${MISSING_SECRETS} DOCKER_PASSWORD"
+        if [ -z "${{ secrets.YC_REGISTRY_KEY }}" ]; then
+          MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_KEY"
         fi
         
         if [ -z "${{ secrets.YC_REGISTRY_ID }}" ]; then
@@ -163,7 +163,7 @@ jobs:
         echo "🐳 Pulling from Docker Hub and pushing to Yandex Container Registry..."
         
         # Авторизация в Yandex Container Registry
-        echo '${{ secrets.DOCKER_PASSWORD }}' | docker login ${{ env.DOCKER_REGISTRY }} -u json_key --password-stdin
+        echo '${{ secrets.YC_REGISTRY_KEY }}' | docker login ${{ env.DOCKER_REGISTRY }} -u json_key --password-stdin
         
         # Определяем теги для образов
         VERSION="latest"
