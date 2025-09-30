@@ -427,7 +427,7 @@ jobs:
     - name: Build and test backend with coverage
       run: |
         cd backend
-        ./mvnw clean compile test jacoco:report
+        ./mvnw clean compile test jacoco:report dependency:copy-dependencies
         echo "✅ Backend built and tested with coverage"
       env:
         # Переменные для подключения к PostgreSQL
@@ -444,9 +444,9 @@ jobs:
         npm run test:coverage
         echo "✅ Frontend coverage report generated"
 
-    - name: Verify coverage files exist
+    - name: Verify coverage files and dependencies
       run: |
-        echo "🔍 Checking coverage files..."
+        echo "🔍 Checking coverage files and dependencies..."
         
         # Проверяем backend coverage
         if [ ! -f "backend/target/site/jacoco/jacoco.xml" ]; then
@@ -462,6 +462,22 @@ jobs:
           exit 1
         else
           echo "✅ Frontend coverage file found"
+        fi
+        
+        # Проверяем что зависимости скопированы
+        if [ ! -d "backend/target/dependency" ] || [ -z "$(ls -A backend/target/dependency)" ]; then
+          echo "❌ Backend dependencies not found in target/dependency"
+          exit 1
+        else
+          echo "✅ Backend dependencies found: $(ls backend/target/dependency | wc -l) JAR files"
+        fi
+        
+        # Проверяем compiled classes
+        if [ ! -d "backend/target/classes" ]; then
+          echo "❌ Backend classes not found"
+          exit 1
+        else
+          echo "✅ Backend classes found"
         fi
 
     - name: Cache SonarCloud packages
