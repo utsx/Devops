@@ -71,31 +71,36 @@ jobs:
 
     - name: Check required secrets
       id: checks
+      env:
+        DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        YC_REGISTRY_KEY: ${{ secrets.YC_REGISTRY_KEY }}
+        YC_REGISTRY_ID: ${{ secrets.YC_REGISTRY_ID }}
+        YC_SERVICE_ACCOUNT_KEY: ${{ secrets.YC_SERVICE_ACCOUNT_KEY }}
       run: |
         echo "🔍 Checking secrets for image update..."
         
         MISSING_SECRETS=""
         
         # Docker Hub access
-        if [[ -z "${{ secrets.DOCKER_USERNAME }}" ]]; then
+        if [[ -z "${DOCKER_USERNAME}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} DOCKER_USERNAME"
         fi
         
         # Yandex Container Registry access (service account key)
-        if [[ -z "${{ secrets.YC_REGISTRY_KEY }}" ]]; then
+        if [[ -z "${YC_REGISTRY_KEY}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_KEY"
         fi
         
-        if [[ -z "${{ secrets.YC_REGISTRY_ID }}" ]]; then
+        if [[ -z "${YC_REGISTRY_ID}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_ID"
         fi
 
         # Kubernetes access (service account key for yc CLI)
-        if [[ -z "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" ]]; then
+        if [[ -z "${YC_SERVICE_ACCOUNT_KEY}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_SERVICE_ACCOUNT_KEY"
         fi
         
-        if [[ -n "$MISSING_SECRETS" ]]; then
+        if [[ -n "${MISSING_SECRETS}" ]]; then
           echo "❌ Missing required secrets:${MISSING_SECRETS}"
           echo "should-deploy=false" >> $GITHUB_OUTPUT
           exit 1
