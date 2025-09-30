@@ -357,6 +357,21 @@ jobs:
     name: SonarQube Security & Quality Analysis
     runs-on: ubuntu-latest
     needs: [code-quality]
+    
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
     - name: Checkout code
@@ -414,6 +429,14 @@ jobs:
         cd backend
         ./mvnw clean compile test jacoco:report
         echo "✅ Backend built and tested with coverage"
+      env:
+        # Переменные для подключения к PostgreSQL
+        SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres
+        SPRING_DATASOURCE_USERNAME: postgres
+        SPRING_DATASOURCE_PASSWORD: postgres
+        # Testcontainers настройки для fallback
+        TESTCONTAINERS_RYUK_DISABLED: true
+        TESTCONTAINERS_CHECKS_DISABLE: true
 
     - name: Generate frontend coverage report
       run: |
@@ -495,13 +518,21 @@ jobs:
       run: |
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "## 🔒 SonarQube Security & Quality Analysis" >> $GITHUB_STEP_SUMMARY
-        echo "| Metric | Requirement | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|--------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Code Coverage | ≥ 80% | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| Security Issues | = 0 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| Critical Bugs | = 0 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| Code Smells | < 5 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
-        echo "| Duplicated Code | < 3% | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "| Metric | Requirement | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Coverage | ≥ 80% | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Issues | = 0 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Critical Bugs | = 0 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Smells | < 5 | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Duplicated Code | < 3% | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| Metric | Requirement | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Quality Gate | Must Pass | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
         echo "- [📊 SonarCloud Dashboard](${{ steps.sonar-metrics.outputs.SONAR_URL }})" >> $GITHUB_STEP_SUMMARY
