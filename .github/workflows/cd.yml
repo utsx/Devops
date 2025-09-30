@@ -1,6 +1,8 @@
 name: Continuous Deployment - Yandex Cloud
 
 on:
+  push:
+    branches: [main]
   workflow_run:
     workflows: ["CI Pipeline"]
     types:
@@ -27,12 +29,24 @@ jobs:
   pre-deployment-checks:
     name: Pre-deployment Checks
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       deploy-environment: ${{ steps.determine-env.outputs.environment }}
       should-deploy: ${{ steps.checks.outputs.should-deploy }}
     
     steps:
+    - name: Debug deployment trigger
+      run: |
+        echo "🔍 Deployment trigger analysis:"
+        echo "Event name: ${{ github.event_name }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Commit: ${{ github.sha }}"
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          echo "Workflow run conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Source workflow: ${{ github.event.workflow_run.name }}"
+        fi
+        echo "Actor: ${{ github.actor }}"
+    
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -97,6 +111,7 @@ jobs:
         echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+        echo "| Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
 
   # Развертывание в Yandex Cloud
   deploy-to-yandex-cloud:
