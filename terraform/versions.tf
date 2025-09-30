@@ -18,9 +18,7 @@ terraform {
 }
 
 # Конфигурация провайдера Yandex Cloud
+# Авторизация происходит через yc CLI (service account key)
 provider "yandex" {
-  token     = var.yandex_token
-  cloud_id  = var.yandex_cloud_id
-  folder_id = var.yandex_folder_id
-  zone      = var.yandex_zone
+  zone = var.yandex_zone
 }

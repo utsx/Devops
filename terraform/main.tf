@@ -1,13 +1,19 @@
+# Получаем текущую конфигурацию yc CLI  
+data "yandex_client_config" "client" {}
+
 # Локальные переменные
 locals {
   ssh_key = var.ssh_public_key != null ? var.ssh_public_key : file(var.ssh_public_key_path)
+  common_labels = merge(local.common_labels, {
+    environment = var.environment
+  })
 }
 
 # Создание VPC сети
 resource "yandex_vpc_network" "k8s_network" {
   name        = "${var.k8s_cluster_name}-network"
   description = "Сеть для Kubernetes кластера"
-  labels      = var.labels
+  labels      = local.common_labels
 }
 
 # Создание подсети для кластера
@@ -17,26 +23,26 @@ resource "yandex_vpc_subnet" "k8s_subnet" {
   zone           = var.yandex_zone
   network_id     = yandex_vpc_network.k8s_network.id
   v4_cidr_blocks = [var.subnet_cidr]
-  labels         = var.labels
+  labels         = local.common_labels
 }
 
 # Создание сервисного аккаунта для кластера
 resource "yandex_iam_service_account" "k8s_cluster_sa" {
   name        = var.k8s_service_account_name
   description = "Сервисный аккаунт для управления Kubernetes кластером"
-  folder_id   = var.yandex_folder_id
+  folder_id   = data.yandex_client_config.client.folder_id
 }
 
 # Назначение роли editor для сервисного аккаунта кластера
 resource "yandex_resourcemanager_folder_iam_member" "k8s_cluster_sa_editor" {
-  folder_id = var.yandex_folder_id
+  folder_id = data.yandex_client_config.client.folder_id
   role      = "editor"
   member    = "serviceAccount:${yandex_iam_service_account.k8s_cluster_sa.id}"
 }
 
 # Назначение роли container-registry.images.puller для загрузки образов
 resource "yandex_resourcemanager_folder_iam_member" "k8s_cluster_sa_puller" {
-  folder_id = var.yandex_folder_id
+  folder_id = data.yandex_client_config.client.folder_id
   role      = "container-registry.images.puller"
   member    = "serviceAccount:${yandex_iam_service_account.k8s_cluster_sa.id}"
 }
@@ -45,12 +51,12 @@ resource "yandex_resourcemanager_folder_iam_member" "k8s_cluster_sa_puller" {
 resource "yandex_iam_service_account" "k8s_node_sa" {
   name        = "${var.k8s_service_account_name}-node"
   description = "Сервисный аккаунт для узлов Kubernetes кластера"
-  folder_id   = var.yandex_folder_id
+  folder_id   = data.yandex_client_config.client.folder_id
 }
 
 # Назначение роли container-registry.images.puller для узлов
 resource "yandex_resourcemanager_folder_iam_member" "k8s_node_sa_puller" {
-  folder_id = var.yandex_folder_id
+  folder_id = data.yandex_client_config.client.folder_id
   role      = "container-registry.images.puller"
   member    = "serviceAccount:${yandex_iam_service_account.k8s_node_sa.id}"
 }
@@ -59,8 +65,8 @@ resource "yandex_resourcemanager_folder_iam_member" "k8s_node_sa_puller" {
 resource "yandex_kubernetes_cluster" "k8s_cluster" {
   name        = var.k8s_cluster_name
   description = "Managed Kubernetes кластер для DevOps проекта"
-  folder_id   = var.yandex_folder_id
-  labels      = var.labels
+  folder_id   = data.yandex_client_config.client.folder_id
+  labels      = local.common_labels
 
   network_id = yandex_vpc_network.k8s_network.id
 
@@ -104,7 +110,7 @@ resource "yandex_kubernetes_node_group" "k8s_node_group" {
   name        = var.node_group_name
   description = "Группа узлов для DevOps приложений"
   version     = var.k8s_version
-  labels      = var.labels
+  labels      = local.common_labels
 
   instance_template {
     platform_id = var.node_group_platform_id
@@ -171,7 +177,7 @@ resource "yandex_vpc_security_group" "k8s_sg" {
   name        = "${var.k8s_cluster_name}-security-group"
   description = "Группа безопасности для Kubernetes кластера"
   network_id  = yandex_vpc_network.k8s_network.id
-  labels      = var.labels
+  labels      = local.common_labels
 
   # Правила для кластера Kubernetes
   ingress {

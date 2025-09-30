@@ -1,10 +1,13 @@
 # Скопируйте этот файл в terraform.tfvars и заполните своими значениями
 
-# Аутентификация в Yandex Cloud
-yandex_token     = "your-oauth-token-here"
-yandex_cloud_id  = "your-cloud-id-here"
-yandex_folder_id = "your-folder-id-here"
-yandex_zone      = "ru-central1-a"
+# Окружение развертывания (обычно передается из CD pipeline)
+environment = "staging"  # staging или production
+
+# Зона Yandex Cloud
+yandex_zone = "ru-central1-a"
+
+# Авторизация происходит через yc CLI (service account key)
+# Настройте через: yc config set ...
 
 # Настройки Kubernetes кластера
 k8s_cluster_name           = "devops-k8s-cluster"
@@ -59,11 +62,11 @@ backend_image  = "utsx/devops-backend:latest"
 
 # Метки для ресурсов
 labels = {
-  project     = "devops"
-  environment = "development"
-  managed_by  = "terraform"
-  owner       = "your-name"
+  project    = "devops"
+  managed_by = "terraform"
+  owner      = "your-name"
 }
+# Примечание: метка environment добавляется автоматически из переменной
 
 # Примеры других конфигураций:
 

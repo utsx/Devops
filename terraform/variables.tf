@@ -1,18 +1,12 @@
-# Переменные для аутентификации в Yandex Cloud
-variable "yandex_token" {
-  description = "OAuth токен для доступа к Yandex Cloud"
+# Переменная для окружения (из CD pipeline)
+variable "environment" {
+  description = "Окружение развертывания (staging, production)"
   type        = string
-  sensitive   = true
-}
-
-variable "yandex_cloud_id" {
-  description = "ID облака в Yandex Cloud"
-  type        = string
-}
-
-variable "yandex_folder_id" {
-  description = "ID папки в Yandex Cloud"
-  type        = string
+  default     = "staging"
+  validation {
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "Окружение должно быть staging или production."
+  }
 }
 
 variable "yandex_zone" {
@@ -143,8 +137,7 @@ variable "labels" {
   description = "Метки для ресурсов"
   type        = map(string)
   default = {
-    project     = "devops"
-    environment = "development"
-    managed_by  = "terraform"
+    project    = "devops"
+    managed_by = "terraform"
   }
 }
