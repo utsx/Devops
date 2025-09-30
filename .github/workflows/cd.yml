@@ -212,11 +212,11 @@ jobs:
       run: |
         echo "🚀 Updating Kubernetes deployments in devops-app namespace..."
         
-        # Обновляем backend deployment (правильное имя и namespace)
-        kubectl set image deployment/devops-backend devops-backend=${{ env.BACKEND_IMAGE }} -n devops-app
+        # Обновляем backend deployment (правильное имя контейнера и namespace)
+        kubectl set image deployment/devops-backend backend=${{ env.BACKEND_IMAGE }} -n devops-app
         
-        # Обновляем frontend deployment (правильное имя и namespace)
-        kubectl set image deployment/devops-frontend devops-frontend=${{ env.FRONTEND_IMAGE }} -n devops-app
+        # Обновляем frontend deployment (правильное имя контейнера и namespace)
+        kubectl set image deployment/devops-frontend frontend=${{ env.FRONTEND_IMAGE }} -n devops-app
         
         # Ожидаем завершения rollout
         echo "⏳ Waiting for deployments to rollout..."
