@@ -77,25 +77,25 @@ jobs:
         MISSING_SECRETS=""
         
         # Docker Hub access
-        if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
+        if [[ -z "${{ secrets.DOCKER_USERNAME }}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} DOCKER_USERNAME"
         fi
         
         # Yandex Container Registry access (service account key)
-        if [ -z "${{ secrets.YC_REGISTRY_KEY }}" ]; then
+        if [[ -z "${{ secrets.YC_REGISTRY_KEY }}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_KEY"
         fi
         
-        if [ -z "${{ secrets.YC_REGISTRY_ID }}" ]; then
+        if [[ -z "${{ secrets.YC_REGISTRY_ID }}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_ID"
         fi
 
         # Kubernetes access (service account key for yc CLI)
-        if [ -z "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" ]; then
+        if [[ -z "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" ]]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_SERVICE_ACCOUNT_KEY"
         fi
         
-        if [ -n "$MISSING_SECRETS" ]; then
+        if [[ -n "$MISSING_SECRETS" ]]; then
           echo "❌ Missing required secrets:${MISSING_SECRETS}"
           echo "should-deploy=false" >> $GITHUB_OUTPUT
           exit 1
@@ -191,61 +191,73 @@ jobs:
         echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
         echo "✅ Images pulled from Docker Hub and pushed to Yandex CR"
 
+    - name: Apply Kubernetes manifests (if not exists)
+      run: |
+        echo "🏗️ Applying Kubernetes manifests..."
+        
+        # Применяем манифесты (создает deployments если их нет)
+        kubectl apply -f terraform/k8s-manifests.yaml
+        
+        # Ждем готовности namespace
+        kubectl wait --for=condition=Ready namespace/devops-app --timeout=60s 2>/dev/null || echo "Namespace already ready"
+        
+        echo "✅ Kubernetes manifests applied"
+
     - name: Update Kubernetes deployments
       run: |
-        echo "🚀 Updating Kubernetes deployments..."
+        echo "🚀 Updating Kubernetes deployments in devops-app namespace..."
         
-        # Обновляем backend deployment
-        kubectl set image deployment/devops-backend-deployment devops-backend=${{ env.BACKEND_IMAGE }}
+        # Обновляем backend deployment (правильное имя и namespace)
+        kubectl set image deployment/devops-backend devops-backend=${{ env.BACKEND_IMAGE }} -n devops-app
         
-        # Обновляем frontend deployment  
-        kubectl set image deployment/devops-frontend-deployment devops-frontend=${{ env.FRONTEND_IMAGE }}
+        # Обновляем frontend deployment (правильное имя и namespace)
+        kubectl set image deployment/devops-frontend devops-frontend=${{ env.FRONTEND_IMAGE }} -n devops-app
         
         # Ожидаем завершения rollout
         echo "⏳ Waiting for deployments to rollout..."
-        kubectl rollout status deployment/devops-backend-deployment --timeout=600s
-        kubectl rollout status deployment/devops-frontend-deployment --timeout=600s
+        kubectl rollout status deployment/devops-backend -n devops-app --timeout=600s
+        kubectl rollout status deployment/devops-frontend -n devops-app --timeout=600s
         
         echo "✅ Deployments updated successfully"
 
     - name: Verify deployment
       run: |
-        echo "🔍 Verifying deployment status..."
+        echo "🔍 Verifying deployment status in devops-app namespace..."
         
-        # Проверяем статус подов
-        kubectl get pods -l app=devops-backend
-        kubectl get pods -l app=devops-frontend
+        # Проверяем статус подов в правильном namespace
+        kubectl get pods -l app=devops-backend -n devops-app
+        kubectl get pods -l app=devops-frontend -n devops-app
         
-        # Проверяем сервисы
-        kubectl get services
+        # Проверяем сервисы в namespace
+        kubectl get services -n devops-app
         
-        # Получаем LoadBalancer IP (если есть)
-        FRONTEND_IP=$(kubectl get service devops-frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+        # Получаем NodePort для frontend (LoadBalancer заменен на NodePort в манифесте)
+        FRONTEND_NODEPORT=$(kubectl get service devops-frontend-service -n devops-app -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || echo "not-found")
         
-        echo "🌐 Frontend LoadBalancer IP: ${FRONTEND_IP}"
+        echo "🌐 Frontend NodePort: ${FRONTEND_NODEPORT}"
         
-        # Проверяем готовность подов
-        kubectl wait --for=condition=ready pod -l app=devops-backend --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=devops-frontend --timeout=300s
+        # Проверяем готовность подов в правильном namespace
+        kubectl wait --for=condition=ready pod -l app=devops-backend -n devops-app --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=devops-frontend -n devops-app --timeout=300s
         
-        echo "✅ All pods are ready"
+        echo "✅ All pods are ready in devops-app namespace"
 
     - name: Health checks
       run: |
-        echo "🏥 Running health checks..."
+        echo "🏥 Running health checks in devops-app namespace..."
         
-        # Проверяем health endpoint бэкенда через port-forward
-        kubectl port-forward deployment/devops-backend-deployment 8080:8080 &
+        # Проверяем health endpoint бэкенда через port-forward (правильное имя и namespace)
+        kubectl port-forward deployment/devops-backend 8080:8080 -n devops-app &
         PORT_FORWARD_PID=$!
         
         # Ждем немного для установки соединения
-        sleep 5
+        sleep 10
         
         # Проверяем health endpoint
         if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
           echo "✅ Backend health check passed"
         else
-          echo "⚠️ Backend health check failed"
+          echo "⚠️ Backend health check failed (это нормально если БД еще не готова)"
         fi
         
         # Останавливаем port-forward
@@ -275,11 +287,11 @@ jobs:
         echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         
-        # Статус подов
+        # Статус подов в правильном namespace
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🏃‍♂️ Pod Status" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏃‍♂️ Pod Status (devops-app namespace)" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-        kubectl get pods -l "app in (devops-backend,devops-frontend)" || echo "Failed to get pod status" >> $GITHUB_STEP_SUMMARY
+        kubectl get pods -l "app in (devops-backend,devops-frontend)" -n devops-app || echo "Failed to get pod status" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Cleanup
