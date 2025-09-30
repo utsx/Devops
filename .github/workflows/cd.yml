@@ -18,10 +18,10 @@ on:
         options:
         - staging
         - production
-      cluster_name:
-        description: 'Имя Kubernetes кластера'
+      cluster_id:
+        description: 'ID Kubernetes кластера (например: cats7kf12gjptceuiapg)'
         required: true
-        default: 'devops-k8s-cluster'
+        default: 'cats7kf12gjptceuiapg'
         type: string
 
 env:
@@ -35,7 +35,7 @@ jobs:
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       deploy-environment: ${{ steps.determine-env.outputs.environment }}
-      cluster-name: ${{ steps.determine-env.outputs.cluster-name }}
+      cluster-id: ${{ steps.determine-env.outputs.cluster-id }}
       should-deploy: ${{ steps.checks.outputs.should-deploy }}
     
     steps:
@@ -59,15 +59,15 @@ jobs:
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           ENVIRONMENT="${{ github.event.inputs.environment }}"
-          CLUSTER_NAME="${{ github.event.inputs.cluster_name }}"
+          CLUSTER_ID="${{ github.event.inputs.cluster_id }}"
         else
           ENVIRONMENT="staging"
-          CLUSTER_NAME="devops-k8s-cluster"
+          CLUSTER_ID="cats7kf12gjptceuiapg"
         fi
         echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
-        echo "cluster-name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
+        echo "cluster-id=${CLUSTER_ID}" >> $GITHUB_OUTPUT
         echo "🎯 Target environment: ${ENVIRONMENT}"
-        echo "🎯 Target cluster: ${CLUSTER_NAME}"
+        echo "🎯 Target cluster ID: ${CLUSTER_ID}"
 
     - name: Check required secrets
       id: checks
@@ -110,7 +110,7 @@ jobs:
         echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Environment | ${{ steps.determine-env.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Cluster | ${{ steps.determine-env.outputs.cluster-name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Cluster ID | ${{ steps.determine-env.outputs.cluster-id }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
         echo "| Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
@@ -147,10 +147,10 @@ jobs:
 
     - name: Configure kubectl
       run: |
-        echo "🔑 Configuring kubectl for cluster ${{ needs.pre-deployment-checks.outputs.cluster-name }}..."
+        echo "🔑 Configuring kubectl for cluster ID ${{ needs.pre-deployment-checks.outputs.cluster-id }}..."
         
-        # Получаем credentials для kubectl
-        yc managed-kubernetes cluster get-credentials ${{ needs.pre-deployment-checks.outputs.cluster-name }} --external --force
+        # Получаем credentials для kubectl (используем ID кластера)
+        yc managed-kubernetes cluster get-credentials ${{ needs.pre-deployment-checks.outputs.cluster-id }} --external --force
         
         # Проверяем подключение
         kubectl cluster-info
@@ -269,7 +269,7 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 Deployment Details" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment**: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Cluster**: ${{ needs.pre-deployment-checks.outputs.cluster-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cluster ID**: ${{ needs.pre-deployment-checks.outputs.cluster-id }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Backend Image**: \`${{ env.BACKEND_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Frontend Image**: \`${{ env.FRONTEND_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
