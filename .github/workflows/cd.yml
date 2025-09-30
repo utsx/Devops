@@ -161,9 +161,9 @@ jobs:
         # Ждем готовности узлов
         kubectl wait --for=condition=Ready nodes --all --timeout=300s
 
-    - name: Build and push Docker images
+    - name: Pull and push Docker images
       run: |
-        echo "🐳 Building and pushing Docker images..."
+        echo "🐳 Pulling from Docker Hub and pushing to Yandex Container Registry..."
         
         # Авторизация в Yandex Container Registry
         echo '${{ secrets.DOCKER_PASSWORD }}' | docker login ${{ env.DOCKER_REGISTRY }} -u json_key --password-stdin
@@ -171,20 +171,28 @@ jobs:
         # Определяем теги для образов
         VERSION="latest"
         REGISTRY_ID="${{ secrets.YC_REGISTRY_ID }}"
+        
+        # Docker Hub образы
+        DOCKER_HUB_BACKEND="utsx/devops-backend:latest"
+        DOCKER_HUB_FRONTEND="utsx/devops-frontend:latest"
+        
+        # Yandex Container Registry образы
         BACKEND_IMAGE="${{ env.DOCKER_REGISTRY }}/${REGISTRY_ID}/devops-backend:${VERSION}"
         FRONTEND_IMAGE="${{ env.DOCKER_REGISTRY }}/${REGISTRY_ID}/devops-frontend:${VERSION}"
         
-        # Собираем backend образ
-        docker build -t $BACKEND_IMAGE backend/
+        echo "📥 Pulling backend from Docker Hub..."
+        docker pull $DOCKER_HUB_BACKEND
+        docker tag $DOCKER_HUB_BACKEND $BACKEND_IMAGE
         docker push $BACKEND_IMAGE
         
-        # Собираем frontend образ  
-        docker build -t $FRONTEND_IMAGE frontend/
+        echo "📥 Pulling frontend from Docker Hub..."
+        docker pull $DOCKER_HUB_FRONTEND
+        docker tag $DOCKER_HUB_FRONTEND $FRONTEND_IMAGE
         docker push $FRONTEND_IMAGE
         
         echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> $GITHUB_ENV
         echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
-        echo "✅ Images built and pushed"
+        echo "✅ Images pulled from Docker Hub and pushed to Yandex CR"
 
     - name: Deploy to Kubernetes
       working-directory: terraform
@@ -286,7 +294,7 @@ jobs:
         echo "- **Environment**: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Cluster**: ${{ env.CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Registry**: Yandex Container Registry" >> $GITHUB_STEP_SUMMARY
-        echo "- **Images**: Backend & Frontend" >> $GITHUB_STEP_SUMMARY
+        echo "- **Images**: Pulled from Docker Hub (utsx/devops-backend, utsx/devops-frontend)" >> $GITHUB_STEP_SUMMARY
         echo "- **Kubernetes**: Applications deployed and verified" >> $GITHUB_STEP_SUMMARY
         
         echo "" >> $GITHUB_STEP_SUMMARY
