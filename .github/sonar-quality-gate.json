@@ -1,0 +1,77 @@
+{
+  "name": "Devops Strict Quality Gate",
+  "description": "Strict quality gate for DevOps project with high security and quality standards",
+  "conditions": [
+    {
+      "metric": "new_coverage",
+      "op": "LT",
+      "value": "80.0",
+      "error": "Coverage on New Code is less than 80%"
+    },
+    {
+      "metric": "coverage",
+      "op": "LT", 
+      "value": "80.0",
+      "error": "Overall Coverage is less than 80%"
+    },
+    {
+      "metric": "new_duplicated_lines_density",
+      "op": "GT",
+      "value": "3.0",
+      "error": "Duplicated Lines on New Code is greater than 3%"
+    },
+    {
+      "metric": "duplicated_lines_density",
+      "op": "GT",
+      "value": "5.0",
+      "error": "Overall Duplicated Lines is greater than 5%"
+    },
+    {
+      "metric": "new_maintainability_rating",
+      "op": "GT",
+      "value": "1",
+      "error": "Maintainability Rating on New Code is worse than A"
+    },
+    {
+      "metric": "new_reliability_rating",
+      "op": "GT", 
+      "value": "1",
+      "error": "Reliability Rating on New Code is worse than A"
+    },
+    {
+      "metric": "new_security_rating",
+      "op": "GT",
+      "value": "1", 
+      "error": "Security Rating on New Code is worse than A"
+    },
+    {
+      "metric": "new_security_hotspots_reviewed",
+      "op": "LT",
+      "value": "100",
+      "error": "Security Hotspots Reviewed on New Code is less than 100%"
+    },
+    {
+      "metric": "new_vulnerabilities",
+      "op": "GT",
+      "value": "0",
+      "error": "New Vulnerabilities found in New Code"
+    },
+    {
+      "metric": "new_bugs",
+      "op": "GT",
+      "value": "0", 
+      "error": "New Bugs found in New Code"
+    },
+    {
+      "metric": "new_code_smells",
+      "op": "GT",
+      "value": "5",
+      "error": "Code Smells on New Code is greater than 5"
+    }
+  ],
+  "settings": {
+    "fail_on_quality_gate": true,
+    "wait_for_quality_gate": true,
+    "timeout": 300
+  }
+}
