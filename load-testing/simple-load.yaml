@@ -1,0 +1,25 @@
+# Упрощенная конфигурация Yandex.Tank для быстрого тестирования
+phantom:
+  address: 89.169.142.28:32757  # Адрес нашего приложения
+  ammofile: scenarios/simple_ammo.txt
+  load_profile:
+    load_type: rps
+    schedule: line(1, 30, 2m) const(30, 3m) line(30, 60, 2m) const(60, 3m)
+  
+  # Настройки подключения
+  timeout: 5s
+  instances: 1000
+
+# Консольный вывод
+console:
+  enabled: true
+  short_only: false
+
+# Условия остановки
+autostop:
+  enabled: true
+  autostop:
+    - "http(5xx,10%,30s)"  # Остановка при 10% ошибок 5xx
+    - "net(xx,5%,30s)"     # Остановка при 5% сетевых ошибок  
+    - "quantile(95,1000ms,60s)"  # Остановка при 95 процентиле > 1 сек
+    - "time(10m)"          # Максимальное время тестирования

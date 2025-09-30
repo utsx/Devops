@@ -1,0 +1,40 @@
+phantom:
+  address: 89.169.142.28:32757
+  uris:
+    - /api/v1/users
+    - /api/v1/orders
+    - /actuator/health
+  headers:
+    - "Host: 89.169.142.28"
+    - "User-Agent: Yandex.Tank"
+  load_profile:
+    load_type: rps
+    schedule: line(1, 50, 5m) const(50, 5m) line(50, 100, 3m) const(100, 2m)
+  
+overload:
+  enabled: true
+  package: yandextank.plugins.DataUploader
+  token_file: "token.txt"
+
+telegraf:
+  enabled: false
+
+monitoring:
+  enabled: true
+  config: monitoring.xml
+
+console:
+  enabled: true
+  short_only: false
+
+web:
+  enabled: true
+  port: 8080
+
+autostop:
+  enabled: true
+  autostop:
+    - "http(5xx,10%,10s)"
+    - "net(xx,1%,10s)"
+    - "quantile(95,500ms,10s)"
+    - "time(15m)"

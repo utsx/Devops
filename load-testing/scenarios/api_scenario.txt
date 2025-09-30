@@ -1,0 +1,29 @@
+# HTTP запросы для нагрузочного тестирования DevOps приложения
+
+# Проверка health endpoint (легкий запрос)
+GET /actuator/health
+
+# Получение пользователей (средняя нагрузка)
+GET /api/v1/users
+
+# Получение заказов (средняя нагрузка)  
+GET /api/v1/orders
+
+# Создание нового пользователя (высокая нагрузка)
+POST /api/v1/users
+Content-Type: application/json
+
+{
+  "name": "LoadTest User",
+  "email": "loadtest@example.com"
+}
+
+# Создание заказа (высокая нагрузка с зависимостью)
+POST /api/v1/orders
+Content-Type: application/json
+
+{
+  "productName": "Test Product",
+  "quantity": 1,
+  "price": 100.0
+}
