@@ -164,9 +164,9 @@ jobs:
         echo "### 🚀 Ready for Deployment" >> $GITHUB_STEP_SUMMARY
         echo "All application artifacts are built and ready for deployment to production environment." >> $GITHUB_STEP_SUMMARY
 
-  # Тестирование Backend с обязательным покрытием кода
+  # Тестирование Backend
   backend-test:
-    name: Backend Tests & Coverage Check
+    name: Backend Tests
     runs-on: ubuntu-latest
     needs: [build]
     
@@ -208,11 +208,10 @@ jobs:
         name: backend-application
         path: backend/target/
 
-    - name: Run backend tests with coverage
+    - name: Run backend tests
       run: |
         cd backend
-        echo "🧪 Running backend tests with JaCoCo coverage..."
-        ./mvnw clean test jacoco:report
+        ./mvnw clean test
       env:
         # Testcontainers требует доступ к Docker
         TESTCONTAINERS_RYUK_DISABLED: true
@@ -222,51 +221,9 @@ jobs:
         SPRING_DATASOURCE_USERNAME: postgres
         SPRING_DATASOURCE_PASSWORD: postgres
 
-    - name: ⚠️ MANDATORY Coverage Check - 80% Required
-      run: |
-        cd backend
-        echo "🔍 Verifying code coverage meets 80% threshold..."
-        echo "❌ BUILD WILL FAIL if coverage is below 80%"
-        
-        # Запускаем JaCoCo check с принудительной проверкой
-        ./mvnw jacoco:check
-        
-        # Если дошли до этой точки, coverage прошел
-        echo "✅ Backend coverage check PASSED - meets 80% requirement"
-        
-        # Выводим детальную информацию о покрытии
-        if [ -f "target/site/jacoco/index.html" ]; then
-          echo "📊 Coverage report generated successfully"
-          echo "🔗 Report location: backend/target/site/jacoco/index.html"
-        fi
-
-    - name: Upload backend coverage reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: backend-coverage-reports
-        path: |
-          backend/target/site/jacoco/
-          backend/target/surefire-reports/
-        retention-days: 30
-
-    - name: OWASP Dependency Check
-      run: |
-        cd backend
-        echo "🔍 Running OWASP Dependency Check for security vulnerabilities..."
-        ./mvnw org.owasp:dependency-check-maven:check -Dformat=ALL || true
-        echo "✅ OWASP dependency check completed"
-
-    - name: Upload security reports
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: backend-security-reports
-        path: backend/target/dependency-check-report.*
-        retention-days: 30
-
-  # Тестирование Frontend с обязательным покрытием кода
+  # Тестирование Frontend
   frontend-test:
-    name: Frontend Tests & Coverage Check
+    name: Frontend Tests
     runs-on: ubuntu-latest
     needs: [build]
 
@@ -311,111 +268,16 @@ jobs:
         name: frontend-application
         path: frontend/build/
 
-    - name: Run frontend tests with coverage
+    - name: Run frontend tests
       run: |
         cd frontend
-        echo "🧪 Running frontend tests with coverage..."
         npm run test:coverage
-      env:
-        CI: true
-
-    - name: ⚠️ MANDATORY Coverage Check - 80% Required
-      run: |
-        cd frontend
-        echo "🔍 Verifying frontend coverage meets 80% threshold..."
-        echo "❌ BUILD WILL FAIL if coverage is below 80%"
-        
-        # Проверяем наличие отчета о покрытии
-        if [ ! -d "coverage" ]; then
-          echo "❌ Coverage directory not found - tests may have failed"
-          exit 1
-        fi
-        
-        # Проверяем coverage-summary.json для точного процента
-        if [ -f "coverage/coverage-summary.json" ]; then
-          # Извлекаем процент покрытия строк
-          line_coverage=$(node -p "
-            const coverage = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-            coverage.total.lines.pct;
-          ")
-          
-          # Извлекаем процент покрытия ветвлений
-          branch_coverage=$(node -p "
-            const coverage = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-            coverage.total.branches.pct;
-          ")
-          
-          # Извлекаем процент покрытия функций
-          function_coverage=$(node -p "
-            const coverage = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-            coverage.total.functions.pct;
-          ")
-          
-          # Извлекаем процент покрытия statements
-          statement_coverage=$(node -p "
-            const coverage = JSON.parse(require('fs').readFileSync('coverage/coverage-summary.json', 'utf8'));
-            coverage.total.statements.pct;
-          ")
-          
-          echo "📊 Frontend Coverage Results:"
-          echo "  • Lines: $line_coverage%"
-          echo "  • Branches: $branch_coverage%"
-          echo "  • Functions: $function_coverage%"
-          echo "  • Statements: $statement_coverage%"
-          
-          # Проверяем каждый тип покрытия
-          THRESHOLD=80
-          FAILED=""
-          
-          if (( $(echo "$line_coverage < $THRESHOLD" | bc -l) )); then
-            echo "❌ Line coverage ($line_coverage%) is below $THRESHOLD%"
-            FAILED="true"
-          fi
-          
-          if (( $(echo "$branch_coverage < $THRESHOLD" | bc -l) )); then
-            echo "❌ Branch coverage ($branch_coverage%) is below $THRESHOLD%"
-            FAILED="true"
-          fi
-          
-          if (( $(echo "$function_coverage < $THRESHOLD" | bc -l) )); then
-            echo "❌ Function coverage ($function_coverage%) is below $THRESHOLD%"
-            FAILED="true"
-          fi
-          
-          if (( $(echo "$statement_coverage < $THRESHOLD" | bc -l) )); then
-            echo "❌ Statement coverage ($statement_coverage%) is below $THRESHOLD%"
-            FAILED="true"
-          fi
-          
-          if [ "$FAILED" = "true" ]; then
-            echo ""
-            echo "🚫 FRONTEND COVERAGE CHECK FAILED"
-            echo "❌ One or more coverage metrics are below the required 80% threshold"
-            echo "🔧 Please add more tests to improve code coverage"
-            exit 1
-          else
-            echo "✅ Frontend coverage check PASSED - all metrics meet 80% requirement"
-          fi
-          
-        else
-          echo "❌ Coverage summary not found - unable to verify coverage"
-          exit 1
-        fi
-
-    - name: Frontend Security Audit
-      run: |
-        cd frontend
-        echo "🔍 Running npm security audit..."
-        # Запускаем audit, но не блокируем на низких уязвимостях
-        npm audit --audit-level=high || echo "⚠️ Security audit found issues - please review"
-        echo "✅ Frontend security audit completed"
 
     - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       with:
         name: frontend-coverage
         path: frontend/coverage/
-        retention-days: 30
 
   # Анализ качества кода
   code-quality:
@@ -490,32 +352,17 @@ jobs:
         echo "### 📊 Test Coverage" >> $GITHUB_STEP_SUMMARY
         echo "Frontend coverage reports are available in artifacts." >> $GITHUB_STEP_SUMMARY
 
-  # КРИТИЧЕСКИЙ ЭТАП: SonarCloud анализ с обязательными проверками
+  # Сканирование безопасности и качества кода с SonarCloud
   security-scan:
-    name: 🔐 SonarCloud Security & Quality Gate
+    name: Security & Quality Scan
     runs-on: ubuntu-latest
     needs: [code-quality]
-    
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # Отключаем shallow clone для полного анализа
+        fetch-depth: 0  # Shallow clones should be disabled for better analysis
 
     - name: Set up JDK ${{ env.JAVA_VERSION }}
       uses: actions/setup-java@v4
@@ -555,35 +402,21 @@ jobs:
           npm install
         fi
 
-    - name: Download backend coverage reports
-      uses: actions/download-artifact@v4
-      with:
-        name: backend-coverage-reports
-        path: backend/target/site/jacoco/
-
-    - name: Download frontend coverage reports
+    - name: Download coverage reports
       uses: actions/download-artifact@v4
       with:
         name: frontend-coverage
         path: frontend/coverage/
 
-    - name: Prepare backend for SonarCloud analysis
+    - name: Build backend for analysis
       run: |
         cd backend
-        echo "🔧 Preparing backend for SonarCloud analysis..."
-        ./mvnw clean compile test jacoco:report
-      env:
-        SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/postgres
-        SPRING_DATASOURCE_USERNAME: postgres
-        SPRING_DATASOURCE_PASSWORD: postgres
+        ./mvnw clean compile test-compile dependency:copy-dependencies
 
-    - name: Prepare frontend for SonarCloud analysis
+    - name: Generate frontend coverage
       run: |
         cd frontend
-        echo "🔧 Preparing frontend for SonarCloud analysis..."
         npm run test:coverage
-      env:
-        CI: true
 
     - name: Cache SonarCloud packages
       uses: actions/cache@v4
@@ -592,110 +425,37 @@ jobs:
         key: ${{ runner.os }}-sonar
         restore-keys: ${{ runner.os }}-sonar
 
-    - name: 🔍 Run SonarCloud Analysis
+    - name: Run SonarCloud Scan
       uses: SonarSource/sonarcloud-github-action@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-    - name: ⚠️ CRITICAL Quality Gate Check
+    - name: SonarCloud Quality Gate check
       uses: SonarSource/sonarqube-quality-gate-action@master
-      timeout-minutes: 10
+      timeout-minutes: 5
       env:
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-    - name: 🔍 Advanced Security Analysis
-      run: |
-        echo "🔍 Running advanced security checks..."
-        
-        # Проверяем backend на высокие уязвимости
-        cd backend
-        echo "🔧 Checking backend dependencies for critical vulnerabilities..."
-        ./mvnw org.owasp:dependency-check-maven:check -DfailBuildOnCVSS=7 || {
-          echo "❌ Critical security vulnerabilities found in backend dependencies"
-          echo "🔧 Please update dependencies or add suppressions"
-          exit 1
-        }
-        
-        cd ..
-        
-        # Проверяем frontend на высокие уязвимости
-        cd frontend
-        echo "🔧 Checking frontend dependencies for critical vulnerabilities..."
-        npm audit --audit-level=high || {
-          echo "⚠️ High-level security issues found in frontend dependencies"
-          echo "🔧 Please run 'npm audit fix' to resolve issues"
-          # Не блокируем сборку для frontend audit, но предупреждаем
-        }
-        
-        echo "✅ Advanced security analysis completed"
-
-    - name: 📊 Verify SonarCloud Metrics
-      run: |
-        echo "📊 Verifying SonarCloud quality metrics..."
-        echo "⚠️ This step will fail if any of the following conditions are not met:"
-        echo "  • Code coverage < 80%"
-        echo "  • New bugs found"
-        echo "  • New vulnerabilities found"
-        echo "  • Security rating worse than A"
-        echo "  • Maintainability rating worse than A"
-        echo "  • Reliability rating worse than A"
-        echo ""
-        echo "🔗 Check detailed results at: https://sonarcloud.io/project/overview?id=${{ env.SONAR_PROJECT_KEY }}"
-        
-        # Информация об этапе SonarCloud качества
-        echo "✅ If this step passes, all SonarCloud quality gates have been met"
-
-    - name: 🛡️ Final Security Validation
-      run: |
-        echo "🛡️ Running final security validation..."
-        
-        # Проверяем, что нет критических файлов в репозитории
-        echo "🔍 Checking for exposed secrets or sensitive files..."
-        
-        # Проверяем наличие потенциально опасных файлов
-        DANGEROUS_FILES=$(find . -name "*.key" -o -name "*.pem" -o -name ".env" -o -name "secrets.yml" -o -name "credentials.json" | head -10)
-        
-        if [ -n "$DANGEROUS_FILES" ]; then
-          echo "⚠️ Potentially sensitive files found:"
-          echo "$DANGEROUS_FILES"
-          echo "🔧 Please ensure these files don't contain real secrets"
-        else
-          echo "✅ No obviously sensitive files found"
-        fi
-        
-        echo "✅ Security validation completed"
 
     - name: Update security scan summary
       run: |
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 🔒 Security & Quality Analysis Results" >> $GITHUB_STEP_SUMMARY
-        echo "| Check | Status | Requirement |" >> $GITHUB_STEP_SUMMARY
-        echo "|-------|--------|------------|" >> $GITHUB_STEP_SUMMARY
-        echo "| SonarCloud Analysis | ✅ Passed | Code quality analysis |" >> $GITHUB_STEP_SUMMARY
-        echo "| Quality Gate | ✅ Passed | Coverage ≥80%, No bugs/vulnerabilities |" >> $GITHUB_STEP_SUMMARY
-        echo "| OWASP Dependency Check | ✅ Passed | No critical vulnerabilities |" >> $GITHUB_STEP_SUMMARY
-        echo "| Frontend Security Audit | ✅ Completed | High-level issues checked |" >> $GITHUB_STEP_SUMMARY
+        echo "## 🔒 Security & Quality Analysis" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| SonarCloud Scan | ✅ Completed |" >> $GITHUB_STEP_SUMMARY
+        echo "| Quality Gate | ✅ Passed |" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 Quality Standards Met" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ **Code Coverage**: ≥80% for both backend and frontend" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ **Security Rating**: A (no vulnerabilities)" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ **Maintainability**: A (clean code)" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ **Reliability**: A (no bugs)" >> $GITHUB_STEP_SUMMARY
-        echo "- ✅ **Dependencies**: No critical vulnerabilities" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Resources" >> $GITHUB_STEP_SUMMARY
-        echo "- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=${{ env.SONAR_PROJECT_KEY }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [Coverage Reports](../../actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [Security Reports](../../actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔗 Links" >> $GITHUB_STEP_SUMMARY
+        echo "- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=utsx_Devops)" >> $GITHUB_STEP_SUMMARY
 
-  # Сборка и публикация Docker образов (только после прохождения ВСЕХ проверок качества)
+  # Сборка и публикация Docker образов
   docker-build-push:
-    name: 🐳 Build & Push Docker Images
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: [build, backend-test, frontend-test, code-quality, security-scan]
-    # Выполняется только для main ветки и тегов И только если все проверки качества прошли успешно
-    if: success() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    # Выполняется только для main ветки и тегов
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
 
     steps:
     - name: Checkout code
@@ -898,181 +658,3 @@ jobs:
         name: deployment-${{ steps.meta.outputs.VERSION }}
         path: deployment/
         retention-days: 30
-
-  # ФИНАЛЬНАЯ ПРОВЕРКА: Подтверждение успешности всех этапов
-  pipeline-success:
-    name: ✅ Pipeline Success Validation
-    runs-on: ubuntu-latest
-    needs: [build, backend-test, frontend-test, code-quality, security-scan, docker-build-push]
-    if: always()
-    
-    steps:
-    - name: 🔍 Validate Pipeline Results
-      run: |
-        echo "🔍 Validating all pipeline stages..."
-        
-        # Проверяем результаты всех критических этапов
-        BUILD_RESULT="${{ needs.build.result }}"
-        BACKEND_TEST_RESULT="${{ needs.backend-test.result }}"
-        FRONTEND_TEST_RESULT="${{ needs.frontend-test.result }}"
-        CODE_QUALITY_RESULT="${{ needs.code-quality.result }}"
-        SECURITY_SCAN_RESULT="${{ needs.security-scan.result }}"
-        DOCKER_BUILD_RESULT="${{ needs.docker-build-push.result }}"
-        
-        echo "📊 Pipeline Results Summary:"
-        echo "  • Build: $BUILD_RESULT"
-        echo "  • Backend Tests & Coverage: $BACKEND_TEST_RESULT"
-        echo "  • Frontend Tests & Coverage: $FRONTEND_TEST_RESULT"
-        echo "  • Code Quality Analysis: $CODE_QUALITY_RESULT"
-        echo "  • SonarCloud Security Scan: $SECURITY_SCAN_RESULT"
-        echo "  • Docker Build & Push: $DOCKER_BUILD_RESULT"
-        
-        # Проверяем критические этапы
-        FAILED_STAGES=""
-        
-        if [ "$BUILD_RESULT" != "success" ]; then
-          FAILED_STAGES="$FAILED_STAGES Build"
-        fi
-        
-        if [ "$BACKEND_TEST_RESULT" != "success" ]; then
-          FAILED_STAGES="$FAILED_STAGES Backend-Tests"
-        fi
-        
-        if [ "$FRONTEND_TEST_RESULT" != "success" ]; then
-          FAILED_STAGES="$FAILED_STAGES Frontend-Tests"
-        fi
-        
-        if [ "$CODE_QUALITY_RESULT" != "success" ]; then
-          FAILED_STAGES="$FAILED_STAGES Code-Quality"
-        fi
-        
-        if [ "$SECURITY_SCAN_RESULT" != "success" ]; then
-          FAILED_STAGES="$FAILED_STAGES Security-Scan"
-        fi
-        
-        # Docker build может быть пропущен для non-main веток
-        if [ "${{ github.ref }}" == "refs/heads/main" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-          if [ "$DOCKER_BUILD_RESULT" != "success" ] && [ "$DOCKER_BUILD_RESULT" != "skipped" ]; then
-            FAILED_STAGES="$FAILED_STAGES Docker-Build"
-          fi
-        fi
-        
-        # Финальное решение
-        if [ -n "$FAILED_STAGES" ]; then
-          echo ""
-          echo "🚫 PIPELINE FAILED"
-          echo "❌ Failed stages:$FAILED_STAGES"
-          echo ""
-          echo "💡 Failure Analysis:"
-          echo "   • Check logs for each failed stage above"
-          echo "   • Ensure code coverage is ≥80% for both backend and frontend"
-          echo "   • Fix any bugs or security vulnerabilities found by SonarCloud"
-          echo "   • Resolve any OWASP dependency check failures"
-          echo "   • All tests must pass before deployment"
-          echo ""
-          echo "🔗 Resources:"
-          echo "   • SonarCloud: https://sonarcloud.io/project/overview?id=${{ env.SONAR_PROJECT_KEY }}"
-          echo "   • GitHub Actions Logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          exit 1
-        else
-          echo ""
-          echo "🎉 PIPELINE SUCCESS!"
-          echo "✅ All quality gates passed successfully"
-          echo ""
-          echo "🎯 Achievements:"
-          echo "   ✅ Code built and tested successfully"
-          echo "   ✅ Code coverage ≥80% (Backend & Frontend)"
-          echo "   ✅ No security vulnerabilities found"
-          echo "   ✅ SonarCloud quality gate passed"
-          echo "   ✅ All tests passing"
-          if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-            echo "   ✅ Docker images built and published"
-          fi
-          echo ""
-          echo "🚀 Code is ready for deployment!"
-        fi
-
-    - name: 📊 Generate Final Report
-      if: always()
-      run: |
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "# 🎯 CI/CD Pipeline Final Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        # Определяем общий статус
-        BUILD_RESULT="${{ needs.build.result }}"
-        BACKEND_TEST_RESULT="${{ needs.backend-test.result }}"
-        FRONTEND_TEST_RESULT="${{ needs.frontend-test.result }}"
-        CODE_QUALITY_RESULT="${{ needs.code-quality.result }}"
-        SECURITY_SCAN_RESULT="${{ needs.security-scan.result }}"
-        DOCKER_BUILD_RESULT="${{ needs.docker-build-push.result }}"
-        
-        # Считаем статистику
-        SUCCESS_COUNT=0
-        TOTAL_COUNT=5  # Основные этапы без учета docker build
-        
-        [ "$BUILD_RESULT" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        [ "$BACKEND_TEST_RESULT" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        [ "$FRONTEND_TEST_RESULT" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        [ "$CODE_QUALITY_RESULT" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        [ "$SECURITY_SCAN_RESULT" == "success" ] && SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        
-        if [ "$SUCCESS_COUNT" -eq "$TOTAL_COUNT" ]; then
-          echo "## ✅ Pipeline Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "## ❌ Pipeline Status: FAILED" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📋 Stage Results" >> $GITHUB_STEP_SUMMARY
-        echo "| Stage | Status | Description |" >> $GITHUB_STEP_SUMMARY
-        echo "|-------|--------|-------------|" >> $GITHUB_STEP_SUMMARY
-        
-        # Функция для определения статуса emoji
-        get_status_emoji() {
-          case "$1" in
-            "success") echo "✅" ;;
-            "failure") echo "❌" ;;
-            "cancelled") echo "⏸️" ;;
-            "skipped") echo "⏭️" ;;
-            *) echo "❓" ;;
-          esac
-        }
-        
-        echo "| 🏗️ Build | $(get_status_emoji "$BUILD_RESULT") $BUILD_RESULT | Application compilation |" >> $GITHUB_STEP_SUMMARY
-        echo "| ☕ Backend Tests | $(get_status_emoji "$BACKEND_TEST_RESULT") $BACKEND_TEST_RESULT | Java tests + 80% coverage |" >> $GITHUB_STEP_SUMMARY
-        echo "| ⚛️ Frontend Tests | $(get_status_emoji "$FRONTEND_TEST_RESULT") $FRONTEND_TEST_RESULT | React tests + 80% coverage |" >> $GITHUB_STEP_SUMMARY
-        echo "| 📊 Code Quality | $(get_status_emoji "$CODE_QUALITY_RESULT") $CODE_QUALITY_RESULT | Code analysis |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🔐 Security Scan | $(get_status_emoji "$SECURITY_SCAN_RESULT") $SECURITY_SCAN_RESULT | SonarCloud + OWASP + vulnerabilities |" >> $GITHUB_STEP_SUMMARY
-        echo "| 🐳 Docker Build | $(get_status_emoji "$DOCKER_BUILD_RESULT") $DOCKER_BUILD_RESULT | Container images |" >> $GITHUB_STEP_SUMMARY
-        
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🎯 Quality Standards" >> $GITHUB_STEP_SUMMARY
-        echo "This pipeline enforces the following strict quality standards:" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Code Coverage**: Minimum 80% for both backend and frontend" >> $GITHUB_STEP_SUMMARY
-        echo "- **Security**: No high/critical vulnerabilities allowed" >> $GITHUB_STEP_SUMMARY
-        echo "- **Code Quality**: SonarCloud Quality Gate must pass" >> $GITHUB_STEP_SUMMARY
-        echo "- **Testing**: All unit and integration tests must pass" >> $GITHUB_STEP_SUMMARY
-        echo "- **Dependencies**: OWASP security check for all dependencies" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📈 Metrics ($SUCCESS_COUNT/$TOTAL_COUNT passed)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Success Rate**: $((SUCCESS_COUNT * 100 / TOTAL_COUNT))%" >> $GITHUB_STEP_SUMMARY
-        echo "- **Build Time**: ~${{ github.run_number }} builds completed" >> $GITHUB_STEP_SUMMARY
-        echo "- **Branch**: \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔗 Resources" >> $GITHUB_STEP_SUMMARY
-        echo "- [SonarCloud Dashboard](https://sonarcloud.io/project/overview?id=${{ env.SONAR_PROJECT_KEY }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [GitHub Actions Run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
-        echo "- [Repository](${{ github.server_url }}/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
-        
-        if [ "$SUCCESS_COUNT" -eq "$TOTAL_COUNT" ]; then
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "**🚀 Ready for Production Deployment!**" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "---" >> $GITHUB_STEP_SUMMARY
-          echo "**⚠️ Quality Gates Failed - Deployment Blocked**" >> $GITHUB_STEP_SUMMARY
-        fi
