@@ -78,7 +78,7 @@ spec:
           value: "validate"
         resources:
           requests:
-            memory: "256Mi"
+            memory: "400Mi"
             cpu: "250m"
           limits:
             memory: "512Mi"

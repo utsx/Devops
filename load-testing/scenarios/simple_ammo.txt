@@ -1,0 +1,11 @@
+GET /actuator/health HTTP/1.1
+Host: 89.169.142.28:32757
+User-Agent: YandexTank/1.0
+
+GET /api/v1/users HTTP/1.1
+Host: 89.169.142.28:32757
+User-Agent: YandexTank/1.0
+
+GET /api/v1/orders HTTP/1.1  
+Host: 89.169.142.28:32757
+User-Agent: YandexTank/1.0
