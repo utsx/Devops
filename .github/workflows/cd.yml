@@ -1,4 +1,4 @@
-name: Continuous Deployment - Yandex Cloud
+name: Continuous Deployment - Update Images
 
 on:
   push:
@@ -18,11 +18,14 @@ on:
         options:
         - staging
         - production
+      cluster_name:
+        description: 'Имя Kubernetes кластера'
+        required: true
+        default: 'devops-k8s-cluster-staging'
+        type: string
 
 env:
   DOCKER_REGISTRY: 'cr.yandex'
-  TF_VERSION: '1.6.0'
-  YC_VERSION: '0.112.0'
 
 jobs:
   # Проверка готовности к развертыванию
@@ -32,6 +35,7 @@ jobs:
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       deploy-environment: ${{ steps.determine-env.outputs.environment }}
+      cluster-name: ${{ steps.determine-env.outputs.cluster-name }}
       should-deploy: ${{ steps.checks.outputs.should-deploy }}
     
     steps:
@@ -55,41 +59,40 @@ jobs:
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           ENVIRONMENT="${{ github.event.inputs.environment }}"
+          CLUSTER_NAME="${{ github.event.inputs.cluster_name }}"
         else
           ENVIRONMENT="staging"
+          CLUSTER_NAME="devops-k8s-cluster-staging"
         fi
         echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+        echo "cluster-name=${CLUSTER_NAME}" >> $GITHUB_OUTPUT
         echo "🎯 Target environment: ${ENVIRONMENT}"
+        echo "🎯 Target cluster: ${CLUSTER_NAME}"
 
     - name: Check required secrets
       id: checks
       run: |
-        echo "🔍 Checking Yandex Cloud secrets..."
+        echo "🔍 Checking secrets for image update..."
         
         MISSING_SECRETS=""
         
+        # Docker Hub access
         if [ -z "${{ secrets.DOCKER_USERNAME }}" ]; then
           MISSING_SECRETS="${MISSING_SECRETS} DOCKER_USERNAME"
         fi
         
+        # Yandex Container Registry access (service account key)
         if [ -z "${{ secrets.DOCKER_PASSWORD }}" ]; then
           MISSING_SECRETS="${MISSING_SECRETS} DOCKER_PASSWORD"
         fi
         
-        if [ -z "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" ]; then
-          MISSING_SECRETS="${MISSING_SECRETS} YC_SERVICE_ACCOUNT_KEY"
-        fi
-        
-        if [ -z "${{ secrets.YC_CLOUD_ID }}" ]; then
-          MISSING_SECRETS="${MISSING_SECRETS} YC_CLOUD_ID"
-        fi
-        
-        if [ -z "${{ secrets.YC_FOLDER_ID }}" ]; then
-          MISSING_SECRETS="${MISSING_SECRETS} YC_FOLDER_ID"
-        fi
-        
         if [ -z "${{ secrets.YC_REGISTRY_ID }}" ]; then
           MISSING_SECRETS="${MISSING_SECRETS} YC_REGISTRY_ID"
+        fi
+
+        # Kubernetes access (service account key for yc CLI)
+        if [ -z "${{ secrets.YC_SERVICE_ACCOUNT_KEY }}" ]; then
+          MISSING_SECRETS="${MISSING_SECRETS} YC_SERVICE_ACCOUNT_KEY"
         fi
         
         if [ -n "$MISSING_SECRETS" ]; then
@@ -98,24 +101,23 @@ jobs:
           exit 1
         fi
         
-        echo "✅ All pre-deployment checks passed"
+        echo "✅ All secrets for image update are configured"
         echo "should-deploy=true" >> $GITHUB_OUTPUT
 
     - name: Update deployment summary
       run: |
-        echo "## 🚀 Deployment Plan" >> $GITHUB_STEP_SUMMARY
+        echo "## 🚀 Image Update Plan" >> $GITHUB_STEP_SUMMARY
         echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
-        echo "| Cloud Provider | Yandex Cloud |" >> $GITHUB_STEP_SUMMARY
-        echo "| Environment | \`${{ steps.determine-env.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
-        echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | ${{ steps.determine-env.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Cluster | ${{ steps.determine-env.outputs.cluster-name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
         echo "| Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
 
-  # Развертывание в Yandex Cloud
-  deploy-to-yandex-cloud:
-    name: Deploy to Yandex Cloud
+  # Обновление образов в Kubernetes
+  update-images:
+    name: Update Docker Images in Kubernetes
     runs-on: ubuntu-latest
     needs: [pre-deployment-checks]
     if: needs.pre-deployment-checks.outputs.should-deploy == 'true'
@@ -125,59 +127,36 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: ${{ env.TF_VERSION }}
-        terraform_wrapper: false
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
     - name: Setup Yandex Cloud CLI
       run: |
+        echo "🔧 Installing Yandex Cloud CLI..."
         curl -sSL https://storage.yandexcloud.net/yandexcloud-yc/install.sh | bash
         echo "$HOME/yandex-cloud/bin" >> $GITHUB_PATH
 
     - name: Configure Yandex Cloud CLI
       run: |
+        echo "🔑 Configuring Yandex Cloud CLI..."
         echo '${{ secrets.YC_SERVICE_ACCOUNT_KEY }}' > sa-key.json
         yc config profile create deploy-profile
         yc config set service-account-key sa-key.json
-        yc config set cloud-id ${{ secrets.YC_CLOUD_ID }}
-        yc config set folder-id ${{ secrets.YC_FOLDER_ID }}
         rm sa-key.json
-
-    - name: Deploy infrastructure with Terraform
-      working-directory: terraform
-      run: |
-        echo "🏗️ Развертывание инфраструктуры..."
-        
-        # Удаляем lock файл чтобы избежать проблем с контрольными суммами
-        rm -f .terraform.lock.hcl
-        
-        # Инициализация Terraform с чистым lock файлом
-        terraform init
-        
-        # Планирование и применение
-        terraform plan -var="environment=${{ needs.pre-deployment-checks.outputs.deploy-environment }}"
-        terraform apply -auto-approve -var="environment=${{ needs.pre-deployment-checks.outputs.deploy-environment }}"
-        
-        # Получаем имя кластера
-        CLUSTER_NAME=$(terraform output -raw cluster_name)
-        echo "CLUSTER_NAME=${CLUSTER_NAME}" >> $GITHUB_ENV
-        echo "✅ Infrastructure deployed: $CLUSTER_NAME"
+        echo "✅ Yandex Cloud CLI configured"
 
     - name: Configure kubectl
       run: |
-        echo "🔑 Настройка kubectl..."
+        echo "🔑 Configuring kubectl for cluster ${{ needs.pre-deployment-checks.outputs.cluster-name }}..."
         
         # Получаем credentials для kubectl
-        yc managed-kubernetes cluster get-credentials ${{ env.CLUSTER_NAME }} --external --force
+        yc managed-kubernetes cluster get-credentials ${{ needs.pre-deployment-checks.outputs.cluster-name }} --external --force
         
         # Проверяем подключение
         kubectl cluster-info
         kubectl get nodes
         
-        # Ждем готовности узлов
-        kubectl wait --for=condition=Ready nodes --all --timeout=300s
+        echo "✅ kubectl configured successfully"
 
     - name: Pull and push Docker images
       run: |
@@ -212,123 +191,100 @@ jobs:
         echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> $GITHUB_ENV
         echo "✅ Images pulled from Docker Hub and pushed to Yandex CR"
 
-    - name: Deploy to Kubernetes
-      working-directory: terraform
+    - name: Update Kubernetes deployments
       run: |
-        echo "🚀 Deploying to Kubernetes..."
+        echo "🚀 Updating Kubernetes deployments..."
         
-        # Обновляем манифесты с новыми образами
-        sed -i "s|utsx/devops-backend:latest|${{ env.BACKEND_IMAGE }}|g" k8s-manifests.yaml
-        sed -i "s|utsx/devops-frontend:latest|${{ env.FRONTEND_IMAGE }}|g" k8s-manifests.yaml
+        # Обновляем backend deployment
+        kubectl set image deployment/devops-backend-deployment devops-backend=${{ env.BACKEND_IMAGE }}
         
-        # Развертываем namespace и PostgreSQL сначала
-        echo "🗄️ Развертывание PostgreSQL..."
-        kubectl apply -f k8s-manifests.yaml --selector="app!=devops-backend,app!=devops-frontend"
+        # Обновляем frontend deployment  
+        kubectl set image deployment/devops-frontend-deployment devops-frontend=${{ env.FRONTEND_IMAGE }}
         
-        # Ожидание готовности PostgreSQL
-        kubectl wait --for=condition=available --timeout=300s deployment/postgres -n devops-app
+        # Ожидаем завершения rollout
+        echo "⏳ Waiting for deployments to rollout..."
+        kubectl rollout status deployment/devops-backend-deployment --timeout=600s
+        kubectl rollout status deployment/devops-frontend-deployment --timeout=600s
         
-        # Развертываем приложения
-        echo "📱 Развертывание приложений..."
-        kubectl apply -f k8s-manifests.yaml
+        echo "✅ Deployments updated successfully"
+
+    - name: Verify deployment
+      run: |
+        echo "🔍 Verifying deployment status..."
         
-        # Ожидание готовности приложений
-        kubectl wait --for=condition=available --timeout=300s deployment/devops-backend -n devops-app
-        kubectl wait --for=condition=available --timeout=300s deployment/devops-frontend -n devops-app
+        # Проверяем статус подов
+        kubectl get pods -l app=devops-backend
+        kubectl get pods -l app=devops-frontend
+        
+        # Проверяем сервисы
+        kubectl get services
+        
+        # Получаем LoadBalancer IP (если есть)
+        FRONTEND_IP=$(kubectl get service devops-frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+        
+        echo "🌐 Frontend LoadBalancer IP: ${FRONTEND_IP}"
+        
+        # Проверяем готовность подов
+        kubectl wait --for=condition=ready pod -l app=devops-backend --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=devops-frontend --timeout=300s
+        
+        echo "✅ All pods are ready"
 
     - name: Health checks
       run: |
         echo "🏥 Running health checks..."
         
-        # Проверяем статус подов
-        kubectl get pods -n devops-app
-        kubectl get services -n devops-app
+        # Проверяем health endpoint бэкенда через port-forward
+        kubectl port-forward deployment/devops-backend-deployment 8080:8080 &
+        PORT_FORWARD_PID=$!
         
-        # Получаем NodePort и IP
-        NODE_PORT=$(kubectl get services -n devops-app devops-frontend-service -o jsonpath='{.spec.ports[0].nodePort}')
-        EXTERNAL_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}')
+        # Ждем немного для установки соединения
+        sleep 5
         
-        if [ -n "$EXTERNAL_IP" ] && [ -n "$NODE_PORT" ]; then
-          APP_URL="http://${EXTERNAL_IP}:${NODE_PORT}"
-          echo "🌐 Application URL: $APP_URL"
-          
-          # Простые health checks
-          sleep 30
-          
-          echo "🔍 Testing frontend..."
-          for i in {1..5}; do
-            if curl -s -o /dev/null -w "%{http_code}" "$APP_URL" | grep -q "200\|301\|302"; then
-              echo "✅ Frontend health check passed (attempt $i)"
-              break
-            else
-              echo "⏳ Frontend not ready yet (attempt $i/5)"
-              if [ $i -eq 5 ]; then
-                echo "❌ Frontend health check failed"
-                exit 1
-              fi
-              sleep 10
-            fi
-          done
-          
-          # Проверка API
-          echo "🔍 Testing backend API..."
-          API_URL="$APP_URL/api/actuator/health"
-          if curl -s -f "$API_URL" | grep -q "UP"; then
-            echo "✅ Backend API health check passed"
-          else
-            echo "⚠️ Backend API health check failed, but continuing..."
-          fi
-          
-          echo "APP_URL=${APP_URL}" >> $GITHUB_ENV
+        # Проверяем health endpoint
+        if curl -f -s http://localhost:8080/actuator/health > /dev/null; then
+          echo "✅ Backend health check passed"
         else
-          echo "⚠️ Cannot determine external access URL"
-          echo "Node Port: $NODE_PORT"
-          echo "External IP: $EXTERNAL_IP"
+          echo "⚠️ Backend health check failed"
         fi
+        
+        # Останавливаем port-forward
+        kill $PORT_FORWARD_PID 2>/dev/null || true
+        
+        echo "✅ Health checks completed"
 
     - name: Update deployment summary
       if: always()
       run: |
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## 🚀 Yandex Cloud Deployment Results" >> $GITHUB_STEP_SUMMARY
+        echo "## 📊 Deployment Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [ "${{ job.status }}" == "success" ]; then
-          echo "✅ **Deployment completed successfully!**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -n "${{ env.APP_URL }}" ]; then
-            echo "🌐 **Application URL**: ${{ env.APP_URL }}" >> $GITHUB_STEP_SUMMARY
-            echo "🔗 **API Health**: ${{ env.APP_URL }}/api/actuator/health" >> $GITHUB_STEP_SUMMARY
-          fi
+        # Статус деплоймента
+        if [ "${{ job.status }}" = "success" ]; then
+          echo "### ✅ Deployment Status: SUCCESS" >> $GITHUB_STEP_SUMMARY
         else
-          echo "❌ **Deployment failed**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Please check the logs for details." >> $GITHUB_STEP_SUMMARY
+          echo "### ❌ Deployment Status: FAILED" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 📋 Deployment Details" >> $GITHUB_STEP_SUMMARY
-        echo "- **Cloud Provider**: Yandex Cloud" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment**: ${{ needs.pre-deployment-checks.outputs.deploy-environment }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Cluster**: ${{ env.CLUSTER_NAME }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Registry**: Yandex Container Registry" >> $GITHUB_STEP_SUMMARY
-        echo "- **Images**: Pulled from Docker Hub (utsx/devops-backend, utsx/devops-frontend)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Kubernetes**: Applications deployed and verified" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cluster**: ${{ needs.pre-deployment-checks.outputs.cluster-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Backend Image**: \`${{ env.BACKEND_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend Image**: \`${{ env.FRONTEND_IMAGE }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
         
+        # Статус подов
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔧 Useful Commands" >> $GITHUB_STEP_SUMMARY
-        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-        echo "# Check pods status" >> $GITHUB_STEP_SUMMARY
-        echo "kubectl get pods -n devops-app" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "# Check backend logs" >> $GITHUB_STEP_SUMMARY
-        echo "kubectl logs -f deployment/devops-backend -n devops-app" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "# Check frontend logs" >> $GITHUB_STEP_SUMMARY
-        echo "kubectl logs -f deployment/devops-frontend -n devops-app" >> $GITHUB_STEP_SUMMARY
+        echo "### 🏃‍♂️ Pod Status" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        kubectl get pods -l "app in (devops-backend,devops-frontend)" || echo "Failed to get pod status" >> $GITHUB_STEP_SUMMARY
         echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Cleanup
       if: always()
       run: |
-        rm -f sa-key.json
+        echo "🧹 Cleaning up..."
+        docker system prune -f || true
+        echo "✅ Cleanup completed"
