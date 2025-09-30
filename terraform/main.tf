@@ -4,7 +4,7 @@ data "yandex_client_config" "client" {}
 # Локальные переменные
 locals {
   ssh_key = var.ssh_public_key != null ? var.ssh_public_key : file(var.ssh_public_key_path)
-  common_labels = merge(local.common_labels, {
+  common_labels = merge(var.labels, {
     environment = var.environment
   })
 }
