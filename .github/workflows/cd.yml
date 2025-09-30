@@ -1,13 +1,13 @@
 name: Continuous Deployment - Update Images
 
 on:
-  push:
-    branches: [main]
+  # CD запускается только после успешного завершения CI
   workflow_run:
     workflows: ["CI Pipeline"]
     types:
       - completed
     branches: [main]
+  # Или при ручном запуске для экстренных случаев
   workflow_dispatch:
     inputs:
       environment:
@@ -32,7 +32,7 @@ jobs:
   pre-deployment-checks:
     name: Pre-deployment Checks
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     outputs:
       deploy-environment: ${{ steps.determine-env.outputs.environment }}
       cluster-id: ${{ steps.determine-env.outputs.cluster-id }}
@@ -41,15 +41,28 @@ jobs:
     steps:
     - name: Debug deployment trigger
       run: |
-        echo "🔍 Deployment trigger analysis:"
+        echo "🔍 CD Trigger Analysis:"
         echo "Event name: ${{ github.event_name }}"
         echo "Branch: ${{ github.ref_name }}"
         echo "Commit: ${{ github.sha }}"
-        if [ "${{ github.event_name }}" = "workflow_run" ]; then
-          echo "Workflow run conclusion: ${{ github.event.workflow_run.conclusion }}"
-          echo "Source workflow: ${{ github.event.workflow_run.name }}"
-        fi
         echo "Actor: ${{ github.actor }}"
+        
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          echo ""
+          echo "📋 CI Pipeline Results:"
+          echo "CI conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "CI workflow: ${{ github.event.workflow_run.name }}"
+          echo "CI head branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "CI head SHA: ${{ github.event.workflow_run.head_sha }}"
+          
+          if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+            echo "❌ CI did not pass successfully - deployment will be skipped"
+          else
+            echo "✅ CI passed - proceeding with deployment"
+          fi
+        else
+          echo "🔧 Manual deployment trigger"
+        fi
     
     - name: Checkout code
       uses: actions/checkout@v4
@@ -116,9 +129,20 @@ jobs:
         echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Environment | ${{ steps.determine-env.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Cluster ID | ${{ steps.determine-env.outputs.cluster-id }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          echo "| CI Status | ✅ ${{ github.event.workflow_run.conclusion }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CI Workflow | ${{ github.event.workflow_run.name }} |" >> $GITHUB_STEP_SUMMARY
+        fi
         echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
         echo "| Actor | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ github.event_name }}" = "workflow_run" ]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Deployment Trigger" >> $GITHUB_STEP_SUMMARY
+          echo "CD запущен автоматически после успешного завершения CI Pipeline" >> $GITHUB_STEP_SUMMARY
+        fi
 
   # Обновление образов в Kubernetes
   update-images:
